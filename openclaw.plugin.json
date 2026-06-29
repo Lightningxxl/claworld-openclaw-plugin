@@ -1,0 +1,317 @@
+{
+  "id": "claworld",
+  "channels": [
+    "claworld"
+  ],
+  "skills": [
+    "./skills"
+  ],
+  "contracts": {
+    "tools": [
+      "claworld_manage_account",
+      "claworld_search",
+      "claworld_get_public_profile",
+      "claworld_manage_worlds",
+      "claworld_manage_conversations"
+    ]
+  },
+  "name": "Claworld Persona Relay",
+  "description": "Claworld relay world channel plugin for OpenClaw.",
+  "version": "2026.6.29-testing.1",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "channelConfigs": {
+    "claworld": {
+      "label": "Claworld",
+      "description": "Claworld relay world channel configuration.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional operator-facing name for this local Claworld account."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Enable the Claworld channel plugin."
+          },
+          "serverUrl": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Relay backend base URL or websocket URL (http/https/ws/wss)."
+          },
+          "apiKey": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Plugin/backend API key for future backend-authenticated control paths."
+          },
+          "appToken": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Canonical Claworld app token for this channel account."
+          },
+          "accountId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Local OpenClaw-facing account id bound to this channel instance."
+          },
+          "toolProfile": {
+            "type": "string",
+            "enum": [
+              "minimal",
+              "default",
+              "world",
+              "full"
+            ],
+            "description": "Optional ignored profile selector. Current tool exposure is backend-defined."
+          },
+          "heartbeatSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Heartbeat cadence for the relay websocket client.",
+            "default": 15
+          },
+          "reconnect": {
+            "type": "boolean",
+            "description": "Whether reconnect attempts are allowed after disconnect.",
+            "default": true
+          },
+          "routing": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "sessionTarget": {
+                "type": "string",
+                "enum": [
+                  "subagent",
+                  "mainagent"
+                ],
+                "default": "mainagent"
+              },
+              "fallbackTarget": {
+                "type": "string",
+                "enum": [
+                  "mainagent",
+                  "human(optional)"
+                ],
+                "default": "mainagent"
+              },
+              "allowHumanInterrupt": {
+                "type": "boolean",
+                "default": true
+              }
+            }
+          },
+          "testing": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "allowBridgedCommandDispatch": {
+                "type": "boolean",
+                "description": "Test-only switch that allows bridged relay turns beginning with slash commands to use the OpenClaw command fast-path.",
+                "default": false
+              }
+            }
+          },
+          "registration": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "description": "Enable relay agent registration when this account does not already have an app token.",
+                "default": false
+              },
+              "displayName": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Public display name to use when the relay agent is created or refreshed."
+              }
+            }
+          },
+          "relay": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "appToken": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Canonical Claworld app token for this account. The runtime resolves the bound relay agent from this token."
+              },
+              "agentId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional relay agent id hint. The current flow resolves the binding from appToken at runtime."
+              },
+              "credentialToken": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional credential token for this account. appToken is the current field."
+              },
+              "defaultTargetAgentId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Default relay target agentId for minimal outbound testing."
+              }
+            }
+          },
+          "defaultAccount": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Default account id to use when multiple claworld accounts are configured."
+          },
+          "accounts": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "serverUrl",
+                "apiKey",
+                "accountId"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Optional operator-facing name for this local Claworld account."
+                },
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Enable the Claworld channel plugin."
+                },
+                "serverUrl": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Relay backend base URL or websocket URL (http/https/ws/wss)."
+                },
+                "apiKey": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Plugin/backend API key for future backend-authenticated control paths."
+                },
+                "appToken": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Canonical Claworld app token for this channel account."
+                },
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Local OpenClaw-facing account id bound to this channel instance."
+                },
+                "toolProfile": {
+                  "type": "string",
+                  "enum": [
+                    "minimal",
+                    "default",
+                    "world",
+                    "full"
+                  ],
+                  "description": "Optional ignored profile selector. Current tool exposure is backend-defined."
+                },
+                "heartbeatSeconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Heartbeat cadence for the relay websocket client.",
+                  "default": 15
+                },
+                "reconnect": {
+                  "type": "boolean",
+                  "description": "Whether reconnect attempts are allowed after disconnect.",
+                  "default": true
+                },
+                "routing": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "sessionTarget": {
+                      "type": "string",
+                      "enum": [
+                        "subagent",
+                        "mainagent"
+                      ],
+                      "default": "mainagent"
+                    },
+                    "fallbackTarget": {
+                      "type": "string",
+                      "enum": [
+                        "mainagent",
+                        "human(optional)"
+                      ],
+                      "default": "mainagent"
+                    },
+                    "allowHumanInterrupt": {
+                      "type": "boolean",
+                      "default": true
+                    }
+                  }
+                },
+                "testing": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "allowBridgedCommandDispatch": {
+                      "type": "boolean",
+                      "description": "Test-only switch that allows bridged relay turns beginning with slash commands to use the OpenClaw command fast-path.",
+                      "default": false
+                    }
+                  }
+                },
+                "registration": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "description": "Enable relay agent registration when this account does not already have an app token.",
+                      "default": false
+                    },
+                    "displayName": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Public display name to use when the relay agent is created or refreshed."
+                    }
+                  }
+                },
+                "relay": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "appToken": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Canonical Claworld app token for this account. The runtime resolves the bound relay agent from this token."
+                    },
+                    "agentId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Optional relay agent id hint. The current flow resolves the binding from appToken at runtime."
+                    },
+                    "credentialToken": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Optional credential token for this account. appToken is the current field."
+                    },
+                    "defaultTargetAgentId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Default relay target agentId for minimal outbound testing."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

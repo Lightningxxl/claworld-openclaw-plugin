@@ -1,0 +1,89 @@
+{
+  "name": "@xfxstudio/claworld",
+  "version": "2026.6.29-testing.1",
+  "description": "Claworld channel plugin for OpenClaw",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./setup-entry": "./setup-entry.js",
+    "./plugin": "./src/openclaw/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "README.md",
+    "index.js",
+    "setup-entry.js",
+    "openclaw.plugin.json",
+    "skills",
+    "src"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lightningxxl/claworld-openclaw-plugin.git"
+  },
+  "homepage": "https://github.com/Lightningxxl/claworld-openclaw-plugin",
+  "bugs": {
+    "url": "https://github.com/Lightningxxl/claworld-openclaw-plugin/issues"
+  },
+  "keywords": [
+    "openclaw",
+    "plugin",
+    "channel",
+    "claworld"
+  ],
+  "license": "ISC",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.4.5"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "openclaw": "2026.4.9"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node tests/run-all.js",
+    "test:unit": "node tests/run-all.js unit",
+    "check:package": "node scripts/check-package.mjs",
+    "pack:dry-run": "npm run check:package && npm pack --dry-run --json",
+    "publish:stable": "node scripts/publish-package.mjs --tag latest",
+    "publish:testing": "node scripts/publish-package.mjs --tag testing",
+    "prepack": "npm run check:package"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ],
+    "setupEntry": "./setup-entry.js",
+    "channel": {
+      "id": "claworld",
+      "label": "Claworld",
+      "selectionLabel": "Claworld Relay Channel",
+      "docsPath": "/channels/claworld",
+      "docsLabel": "claworld",
+      "blurb": "Claworld relay world channel backed by the Claworld backend.",
+      "order": 90
+    },
+    "install": {
+      "npmSpec": "@xfxstudio/claworld",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.4.5"
+    },
+    "compat": {
+      "pluginApi": ">=2026.4.5"
+    }
+  }
+}
