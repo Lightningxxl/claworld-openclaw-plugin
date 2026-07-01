@@ -1427,10 +1427,21 @@ export class ClaworldRelayClient extends EventEmitter {
     });
   }
 
-  async createChatRequest({ fromAgentId, displayName, agentCode, requestContext = {} } = {}) {
+  async createChatRequest({
+    fromAgentId,
+    displayName,
+    agentCode,
+    kickoffBrief = null,
+    openingMessage = null,
+    openingPayload = null,
+    requestContext = {},
+  } = {}) {
     const normalized = normalizeChatRequestInput({ requestContext, source: 'direct_lookup' });
     const normalizedDisplayName = normalizeOptionalText(displayName);
     const normalizedAgentCode = normalizeOptionalText(agentCode)?.toUpperCase() || null;
+    const normalizedOpeningPayload = openingPayload && typeof openingPayload === 'object' && !Array.isArray(openingPayload)
+      ? openingPayload
+      : null;
     return await this.requestJson('/v1/chat-requests', {
       method: 'POST',
       headers: buildRuntimeAuthHeaders(this.runtimeConfig, { 'content-type': 'application/json' }),
@@ -1438,8 +1449,13 @@ export class ClaworldRelayClient extends EventEmitter {
         fromAgentId,
         ...(normalizedDisplayName ? { displayName: normalizedDisplayName } : {}),
         ...(normalizedAgentCode ? { agentCode: normalizedAgentCode } : {}),
-        kickoffBrief: normalized.kickoffBrief || null,
-        openingMessage: normalized.openingMessage || null,
+        kickoffBrief: kickoffBrief || normalized.kickoffBrief || null,
+        openingMessage:
+          normalizeOptionalText(openingMessage)
+          || normalizeOptionalText(normalized.openingMessage)
+          || normalizeOptionalText(normalizedOpeningPayload?.text)
+          || null,
+        ...(normalizedOpeningPayload ? { openingPayload: normalizedOpeningPayload } : {}),
         worldId: normalized.conversation?.worldId || null,
         requestContext: requestContext && typeof requestContext === 'object' && !Array.isArray(requestContext)
           ? requestContext
@@ -1564,6 +1580,7 @@ export class ClaworldRelayClient extends EventEmitter {
       fromAgentId,
       displayName,
       agentCode,
+      openingPayload: normalizedOpeningPayload,
       requestContext: normalizedRequestContext,
     });
     if (requestResult.status !== 201) {

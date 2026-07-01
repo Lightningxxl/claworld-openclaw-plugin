@@ -201,6 +201,28 @@ function hasExplicitAction(params = {}) {
   return Object.prototype.hasOwnProperty.call(params, 'action') && normalizeText(params.action, null) != null;
 }
 
+function resolveConversationOpeningMessage(params = {}) {
+  const kickoffBrief = params?.kickoffBrief && typeof params.kickoffBrief === 'object' && !Array.isArray(params.kickoffBrief)
+    ? params.kickoffBrief
+    : null;
+  return normalizeText(
+    params?.openingMessage,
+    normalizeText(
+      params?.message,
+      normalizeText(
+        params?.text,
+        normalizeText(
+          typeof params?.kickoffBrief === 'string' ? params.kickoffBrief : null,
+          normalizeText(
+            kickoffBrief?.text,
+            normalizeText(kickoffBrief?.openingMessage, normalizeText(kickoffBrief?.message, normalizeText(params?.openingPayload?.text, null))),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 function normalizeTerminalAccountAction(params = {}) {
   if (hasExplicitAction(params)) {
     const explicitAction = normalizeText(params.action, null);
@@ -1069,6 +1091,16 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           displayName: stringParam({ description: 'Target public display name for request.', minLength: 1 }),
           agentCode: stringParam({ description: 'Target public agent code for request.', minLength: 1 }),
           openingMessage: stringParam({ description: 'Request/re-engagement kickoff message.', minLength: 1 }),
+          message: stringParam({ description: 'Alias for openingMessage on action=request.', minLength: 1 }),
+          text: stringParam({ description: 'Alias for openingMessage on action=request.', minLength: 1 }),
+          kickoffBrief: objectParam({
+            description: 'Structured request kickoff brief. text/openingMessage/message are accepted as opener aliases.',
+            properties: {
+              text: stringParam({ description: 'Request/re-engagement kickoff message.', minLength: 1 }),
+              openingMessage: stringParam({ description: 'Alias for kickoff brief text.', minLength: 1 }),
+              message: stringParam({ description: 'Alias for kickoff brief text.', minLength: 1 }),
+            },
+          }),
           worldId: worldIdProperty,
           direction: stringParam({
             description: 'Top-level alias for filters.direction on action=list_related/get_state.',
@@ -1778,6 +1810,28 @@ function buildRegisteredTools(api, plugin) {
             minLength: 1,
             examples: ['Hi, want to compare trail-running routes in Shanghai?'],
           }),
+          message: stringParam({
+            description: 'Alias for openingMessage.',
+            minLength: 1,
+          }),
+          text: stringParam({
+            description: 'Alias for openingMessage.',
+            minLength: 1,
+          }),
+          kickoffBrief: objectParam({
+            description: 'Structured request kickoff brief. text/openingMessage/message are accepted as opener aliases.',
+            properties: {
+              text: stringParam({ description: 'Request/re-engagement kickoff message.', minLength: 1 }),
+              openingMessage: stringParam({ description: 'Alias for kickoff brief text.', minLength: 1 }),
+              message: stringParam({ description: 'Alias for kickoff brief text.', minLength: 1 }),
+            },
+          }),
+          openingPayload: objectParam({
+            description: 'Optional structured opening payload. text is accepted as opener alias.',
+            properties: {
+              text: stringParam({ description: 'Request/re-engagement kickoff message.', minLength: 1 }),
+            },
+          }),
           worldId: worldIdProperty,
         },
         examples: [
@@ -1798,7 +1852,11 @@ function buildRegisteredTools(api, plugin) {
           ...context,
           displayName: params.displayName,
           agentCode: params.agentCode,
-          openingMessage: params.openingMessage || null,
+          openingMessage: resolveConversationOpeningMessage(params),
+          message: params.message || null,
+          text: params.text || null,
+          kickoffBrief: params.kickoffBrief || null,
+          openingPayload: params.openingPayload || null,
           worldId: params.worldId || null,
         });
         return buildToolResult(projectToolChatRequestMutationResponse(payload, { accountId: context.accountId }));

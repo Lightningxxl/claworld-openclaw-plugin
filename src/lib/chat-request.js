@@ -99,6 +99,24 @@ export function normalizeChatRequestOpeningPayload(input = null) {
   return Object.keys(payload).length > 0 ? payload : null;
 }
 
+function normalizeKickoffBriefInput(kickoffBrief = null) {
+  if (kickoffBrief && typeof kickoffBrief === 'object' && !Array.isArray(kickoffBrief)) {
+    return kickoffBrief;
+  }
+  const text = normalizeText(kickoffBrief, null);
+  return text ? { text } : null;
+}
+
+function resolveKickoffBriefOpeningMessage(kickoffBrief = null, fallback = null) {
+  if (!kickoffBrief || typeof kickoffBrief !== 'object' || Array.isArray(kickoffBrief)) {
+    return normalizeText(fallback, null);
+  }
+  return normalizeText(
+    kickoffBrief.text,
+    normalizeText(kickoffBrief.openingMessage, normalizeText(kickoffBrief.message, normalizeText(fallback, null))),
+  );
+}
+
 export function resolveChatRequestOpeningMessage({
   openingMessage = null,
   openingPayload = null,
@@ -119,12 +137,8 @@ function resolveKickoffBriefSource({
   const normalizedContext = requestContext && typeof requestContext === 'object' && !Array.isArray(requestContext)
     ? requestContext
     : {};
-  const explicitKickoffBrief = kickoffBrief && typeof kickoffBrief === 'object' && !Array.isArray(kickoffBrief)
-    ? kickoffBrief
-    : null;
-  const contextKickoffBrief = normalizedContext.kickoffBrief && typeof normalizedContext.kickoffBrief === 'object' && !Array.isArray(normalizedContext.kickoffBrief)
-    ? normalizedContext.kickoffBrief
-    : null;
+  const explicitKickoffBrief = normalizeKickoffBriefInput(kickoffBrief);
+  const contextKickoffBrief = normalizeKickoffBriefInput(normalizedContext.kickoffBrief);
   const fallbackSource = normalizeText(source, null) === 'world_broadcast'
     ? 'world_broadcast_brief'
     : 'chat_request_brief';
@@ -150,12 +164,8 @@ function resolveChatRequestKickoffBrief({
   const normalizedContext = requestContext && typeof requestContext === 'object' && !Array.isArray(requestContext)
     ? requestContext
     : {};
-  const explicitKickoffBrief = kickoffBrief && typeof kickoffBrief === 'object' && !Array.isArray(kickoffBrief)
-    ? kickoffBrief
-    : null;
-  const contextKickoffBrief = normalizedContext.kickoffBrief && typeof normalizedContext.kickoffBrief === 'object' && !Array.isArray(normalizedContext.kickoffBrief)
-    ? normalizedContext.kickoffBrief
-    : null;
+  const explicitKickoffBrief = normalizeKickoffBriefInput(kickoffBrief);
+  const contextKickoffBrief = normalizeKickoffBriefInput(normalizedContext.kickoffBrief);
   const normalizedOpeningPayload = normalizeChatRequestOpeningPayload(
     explicitKickoffBrief?.payload
     ?? contextKickoffBrief?.payload
@@ -163,10 +173,10 @@ function resolveChatRequestKickoffBrief({
     ?? normalizedContext.openingPayload,
   );
   const normalizedOpeningMessage = resolveChatRequestOpeningMessage({
-    openingMessage:
-      explicitKickoffBrief?.text
-      ?? contextKickoffBrief?.text
-      ?? openingMessage,
+    openingMessage: resolveKickoffBriefOpeningMessage(
+      explicitKickoffBrief,
+      resolveKickoffBriefOpeningMessage(contextKickoffBrief, openingMessage),
+    ),
     openingPayload: normalizedOpeningPayload,
     requestContext: normalizedContext,
   });

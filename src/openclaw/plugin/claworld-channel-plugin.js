@@ -271,6 +271,46 @@ function isClaworldPlainObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function resolveClaworldOpeningMessage({
+  openingMessage = null,
+  message = null,
+  text = null,
+  kickoffBrief = null,
+  openingPayload = null,
+} = {}) {
+  const brief = isClaworldPlainObject(kickoffBrief) ? kickoffBrief : null;
+  return normalizeClaworldText(
+    openingMessage,
+    normalizeClaworldText(
+      message,
+      normalizeClaworldText(
+        text,
+        normalizeClaworldText(
+          typeof kickoffBrief === 'string' ? kickoffBrief : null,
+          normalizeClaworldText(
+            brief?.text,
+            normalizeClaworldText(
+              brief?.openingMessage,
+              normalizeClaworldText(brief?.message, normalizeClaworldText(openingPayload?.text, null)),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+function normalizeClaworldKickoffBriefInput(kickoffBrief = null, openingMessage = null) {
+  if (isClaworldPlainObject(kickoffBrief)) {
+    return {
+      ...kickoffBrief,
+      ...(!resolveClaworldOpeningMessage({ kickoffBrief }) && openingMessage ? { text: openingMessage } : {}),
+    };
+  }
+  const text = normalizeClaworldText(kickoffBrief, null);
+  return text ? { text } : null;
+}
+
 function resolveNormalizedText(value, fallback = null) {
   return normalizeClaworldText(value, fallback);
 }
@@ -894,6 +934,10 @@ async function createChatRequest({
   displayName = null,
   agentCode = null,
   openingMessage = null,
+  message = null,
+  text = null,
+  kickoffBrief = null,
+  openingPayload = null,
   worldId = null,
   requestContext = null,
   fetchImpl,
@@ -912,7 +956,15 @@ async function createChatRequest({
     });
   }
   const baseUrl = normalizeRelayHttpBaseUrl(runtimeConfig.serverUrl);
-  const normalizedOpeningMessage = normalizeClaworldText(openingMessage, null);
+  const normalizedOpeningPayload = isClaworldPlainObject(openingPayload) ? openingPayload : null;
+  const normalizedOpeningMessage = resolveClaworldOpeningMessage({
+    openingMessage,
+    message,
+    text,
+    kickoffBrief,
+    openingPayload: normalizedOpeningPayload,
+  });
+  const normalizedKickoffBrief = normalizeClaworldKickoffBriefInput(kickoffBrief, normalizedOpeningMessage);
   if (!normalizedOpeningMessage) {
     const message = 'openingMessage is required for chat request kickoff';
     throw createRuntimeBoundaryError({
@@ -951,6 +1003,8 @@ async function createChatRequest({
       displayName: normalizedDisplayName,
       agentCode: normalizedAgentCode,
       openingMessage: normalizedOpeningMessage,
+      ...(normalizedKickoffBrief ? { kickoffBrief: normalizedKickoffBrief } : {}),
+      ...(normalizedOpeningPayload ? { openingPayload: normalizedOpeningPayload } : {}),
       ...(normalizeClaworldText(worldId, null) ? { worldId: normalizeClaworldText(worldId, null) } : {}),
       ...(requestContext && typeof requestContext === 'object' && !Array.isArray(requestContext)
         ? { requestContext }
@@ -4553,6 +4607,10 @@ async function generateRuntimeProfileCard(context = {}) {
             displayName: context.displayName || null,
             agentCode: context.agentCode || null,
             openingMessage: context.openingMessage || context.message || context.text || null,
+            message: context.message || null,
+            text: context.text || null,
+            kickoffBrief: context.kickoffBrief || null,
+            openingPayload: context.openingPayload || null,
             worldId: context.worldId || null,
             requestContext,
             fetchImpl,

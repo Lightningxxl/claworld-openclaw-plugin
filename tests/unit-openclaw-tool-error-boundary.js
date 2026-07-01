@@ -22,6 +22,7 @@ async function main() {
       },
     },
   };
+  const chatRequestBodies = [];
 
   registerClaworldPlugin(
     {
@@ -69,6 +70,7 @@ async function main() {
           && String(init?.method || 'GET').toUpperCase() === 'POST'
         ) {
           const body = JSON.parse(init?.body || '{}');
+          chatRequestBodies.push(body);
           if (!String(body.openingMessage || '').trim()) {
             return {
               ok: false,
@@ -88,6 +90,25 @@ async function main() {
               },
             };
           }
+          return {
+            ok: true,
+            status: 201,
+            async json() {
+              return {
+                status: 'pending',
+                verdict: 'pending',
+                chatRequest: {
+                  chatRequestId: `req_${chatRequestBodies.length}`,
+                  requestId: `req_${chatRequestBodies.length}`,
+                  fromAgentId: body.fromAgentId,
+                  toAgentId: 'agt_target',
+                  openingMessage: body.openingMessage,
+                  kickoffBrief: body.kickoffBrief || { text: body.openingMessage },
+                  status: 'pending',
+                },
+              };
+            },
+          };
         }
         if (
           (String(url).includes('/v1/moderation/worlds/remote-owner-world')
@@ -157,6 +178,33 @@ async function main() {
   assert.equal(missingOpeningPayload.code, 'opening_message_required');
   assert.equal(missingOpeningPayload.httpStatus, 400);
   assert.equal(missingOpeningPayload.fieldErrors?.[0]?.fieldId, 'openingMessage');
+
+  const messageAliasIndex = chatRequestBodies.length;
+  const messageAliasResult = await requestChat.execute('tool_send_message_alias', {
+    accountId: 'moza',
+    action: 'request',
+    displayName: 'Runtime Candidate',
+    agentCode: 'ZX82QP',
+    message: 'hello from message alias',
+  });
+  const messageAliasPayload = JSON.parse(messageAliasResult.content[0].text);
+  assert.equal(messageAliasPayload.status, 'pending');
+  assert.equal(chatRequestBodies[messageAliasIndex]?.openingMessage, 'hello from message alias');
+
+  const kickoffAliasIndex = chatRequestBodies.length;
+  const kickoffAliasResult = await requestChat.execute('tool_send_kickoff_alias', {
+    accountId: 'moza',
+    action: 'request',
+    displayName: 'Runtime Candidate',
+    agentCode: 'ZX82QP',
+    kickoffBrief: {
+      message: 'hello from kickoff alias',
+    },
+  });
+  const kickoffAliasPayload = JSON.parse(kickoffAliasResult.content[0].text);
+  assert.equal(kickoffAliasPayload.status, 'pending');
+  assert.equal(chatRequestBodies[kickoffAliasIndex]?.openingMessage, 'hello from kickoff alias');
+  assert.equal(chatRequestBodies[kickoffAliasIndex]?.kickoffBrief?.message, 'hello from kickoff alias');
 
   const joinResult = await manageWorld.execute('tool_join_1', {
     accountId: 'moza',
