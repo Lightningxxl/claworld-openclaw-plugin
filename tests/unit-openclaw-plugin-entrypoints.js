@@ -56,6 +56,16 @@ async function main() {
   assert.equal(full.httpRoutes.length, 1);
   assert.ok(full.tools.length > 0);
   assert.ok(full.tools.every(({ options }) => options == null));
+  assert.deepEqual(
+    full.tools.map(({ tool }) => tool.name).sort(),
+    [
+      'claworld_get_public_profile',
+      'claworld_manage_account',
+      'claworld_manage_conversations',
+      'claworld_manage_worlds',
+      'claworld_search',
+    ],
+  );
 
   assert.equal(typeof claworldSetupEntry, 'object');
   assert.equal(claworldSetupEntry.plugin.id, 'claworld');

@@ -1128,11 +1128,25 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
       async execute(toolCallId, params = {}) {
         const action = normalizeTerminalConversationAction(params.action, 'list_related', { throwOnInvalid: true });
         if (action === 'request') {
-          const result = await requireTerminalTool(internalTools, 'claworld_request_chat').execute(toolCallId, {
-            ...params,
-            action: 'request_chat',
+          const context = await resolveToolContext(api, plugin, params, {
+            requiredPublicIdentityCapability: 'request chat',
           });
-          return rewriteToolResultName(result, manageConversationsTool, action);
+          const payload = await plugin.helpers.social.requestChat({
+            ...context,
+            displayName: params.displayName,
+            agentCode: params.agentCode,
+            openingMessage: resolveConversationOpeningMessage(params),
+            message: params.message || null,
+            text: params.text || null,
+            kickoffBrief: params.kickoffBrief || null,
+            openingPayload: params.openingPayload || null,
+            worldId: params.worldId || null,
+          });
+          return buildToolResult({
+            ...projectToolChatRequestMutationResponse(payload, { accountId: context.accountId }),
+            tool: manageConversationsTool,
+            action,
+          });
         }
         if (action === 'list_related' || action === 'get_state') {
           const filters = normalizeManageConversationInboxQuery(params, action);
@@ -1747,119 +1761,6 @@ function buildRegisteredTools(api, plugin) {
           accountId: context.accountId,
           action,
         }));
-      },
-    },
-    {
-      name: 'claworld_request_chat',
-      label: 'Claworld Request Chat',
-      description: 'Use in the main session to create a new Claworld chat request or re-engage a selected public identity. Do not use for live conversation turns or current-session replies.',
-      metadata: buildToolMetadata({
-        category: 'chat_request',
-        usageNotes: [
-          'Primary actor/session: main session only. Use this tool when the user wants to start a new request or re-engage someone after an earlier request or chat went silent or ended.',
-          'If the user asks to contact the same person again, call this tool again to create a fresh request or re-engagement.',
-          'For world-scoped chat or re-engagement, use the displayName and agentCode returned by world member search.',
-          'The backend resolves the target by agentCode.',
-          'If the current displayName for that agentCode no longer matches, the tool can still route by the current owner and return an explicit warning with the current displayName.',
-          'openingMessage is required and must contain non-blank kickoff intent; missing or blank opener text fails with opening_message_required.',
-          'Do not use this tool for replying inside an already-open Claworld chat or for runtime live turns.',
-          'After creation, use claworld_chat_inbox to inspect pending, expired, rejected, opening, ending, active, silent, or ended status, or wait for the peer to accept.',
-          'Once accepted, the runtime owns the live conversation loop.',
-        ],
-        examples: [
-          {
-            title: 'Request chat with a world member',
-            input: {
-              accountId: 'claworld',
-              worldId: 'dating-demo-world',
-              displayName: 'Runtime Peer',
-              agentCode: 'ZX82QP',
-              openingMessage: 'Hi, want to compare trail-running routes in Shanghai?',
-            },
-            outcome: 'Creates one pending world-scoped chat request or re-engagement request.',
-          },
-          {
-            title: 'Re-engage a known public identity',
-            input: {
-              accountId: 'claworld',
-              displayName: 'Runtime Peer',
-              agentCode: 'ZX82QP',
-              openingMessage: 'Hi, want to compare trail-running routes in Shanghai?',
-            },
-            outcome: 'Creates one pending direct chat request toward the known public identity, including re-engagement after silence or a prior ended request.',
-          },
-        ],
-      }),
-      parameters: objectParam({
-        description: 'In the main session, create a new direct or world-scoped chat request, or re-engage a previously silent or ended relationship, for one target agent. Use this for user requests to contact, PK, continue, or send peer-facing Claworld conversation content. Provide the target displayName, agentCode, and non-blank openingMessage. Do not use this payload for current live replies.',
-        required: ['accountId', 'displayName', 'agentCode', 'openingMessage'],
-        properties: {
-          accountId: accountIdProperty,
-          displayName: stringParam({
-            description: 'Target public displayName for the request or re-engagement target.',
-            minLength: 1,
-            examples: ['Runtime Peer'],
-          }),
-          agentCode: stringParam({
-            description: 'Target public agentCode. The backend resolves the target by this code and verifies the displayName still matches. Use public identity, not local session references.',
-            minLength: 1,
-            examples: ['ZX82QP'],
-          }),
-          openingMessage: stringParam({
-            description: 'Required non-blank request or re-engagement brief that the backend uses when the peer accepts. Missing or blank opener text fails with opening_message_required. This is kickoff intent, not a live runtime reply payload.',
-            minLength: 1,
-            examples: ['Hi, want to compare trail-running routes in Shanghai?'],
-          }),
-          message: stringParam({
-            description: 'Alias for openingMessage.',
-            minLength: 1,
-          }),
-          text: stringParam({
-            description: 'Alias for openingMessage.',
-            minLength: 1,
-          }),
-          kickoffBrief: objectParam({
-            description: 'Structured request kickoff brief. text/openingMessage/message are accepted as opener aliases.',
-            properties: {
-              text: stringParam({ description: 'Request/re-engagement kickoff message.', minLength: 1 }),
-              openingMessage: stringParam({ description: 'Alias for kickoff brief text.', minLength: 1 }),
-              message: stringParam({ description: 'Alias for kickoff brief text.', minLength: 1 }),
-            },
-          }),
-          openingPayload: objectParam({
-            description: 'Optional structured opening payload. text is accepted as opener alias.',
-            properties: {
-              text: stringParam({ description: 'Request/re-engagement kickoff message.', minLength: 1 }),
-            },
-          }),
-          worldId: worldIdProperty,
-        },
-        examples: [
-          {
-            accountId: 'claworld',
-            worldId: 'dating-demo-world',
-            displayName: 'Runtime Peer',
-            agentCode: 'ZX82QP',
-            openingMessage: 'Hi, want to compare trail-running routes in Shanghai?',
-          },
-        ],
-      }),
-      async execute(_toolCallId, params = {}) {
-        const context = await resolveToolContext(api, plugin, params, {
-          requiredPublicIdentityCapability: 'request chat',
-        });
-        const payload = await plugin.helpers.social.requestChat({
-          ...context,
-          displayName: params.displayName,
-          agentCode: params.agentCode,
-          openingMessage: resolveConversationOpeningMessage(params),
-          message: params.message || null,
-          text: params.text || null,
-          kickoffBrief: params.kickoffBrief || null,
-          openingPayload: params.openingPayload || null,
-          worldId: params.worldId || null,
-        });
-        return buildToolResult(projectToolChatRequestMutationResponse(payload, { accountId: context.accountId }));
       },
     },
     {

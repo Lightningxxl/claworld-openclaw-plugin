@@ -1402,7 +1402,6 @@ export function buildClaworldToolMaintenanceEvent({
   const conversationToolNames = new Set([
     'claworld_manage_conversations',
     'claworld_chat_inbox',
-    'claworld_request_chat',
   ]);
   const localSessionKey = firstText(
     conversationToolNames.has(normalizedToolName) ? resultConversationSessionKey : null,
