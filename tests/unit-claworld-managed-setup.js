@@ -2,9 +2,13 @@ import assert from 'assert';
 import path from 'path';
 import { createClaworldChannelPlugin } from '../src/openclaw/index.js';
 import {
+  CLAWORLD_PRODUCTION_SERVER_URL,
+  CLAWORLD_STAGING_SERVER_URL,
   DEFAULT_CLAWORLD_SERVER_URL,
   DEFAULT_CLAWORLD_SESSION_RESET_IDLE_MINUTES,
   DEFAULT_CLAWORLD_SESSION_RESET_MODE,
+  isClaworldTestingPluginVersion,
+  resolveDefaultClaworldServerUrl,
   resolveClaworldManagedRuntimeOptions,
 } from '../src/openclaw/plugin/managed-config.js';
 import { validateClaworldSetupInput } from '../src/openclaw/plugin/onboarding.js';
@@ -85,6 +89,11 @@ async function main() {
 
   assert.ok(plugin.setup);
   assert.ok(plugin.onboarding);
+  assert.equal(isClaworldTestingPluginVersion('2026.7.2-testing.1'), true);
+  assert.equal(isClaworldTestingPluginVersion('2026.7.2'), false);
+  assert.equal(resolveDefaultClaworldServerUrl('2026.7.2-testing.1'), CLAWORLD_STAGING_SERVER_URL);
+  assert.equal(resolveDefaultClaworldServerUrl('2026.7.2'), CLAWORLD_PRODUCTION_SERVER_URL);
+  assert.equal(DEFAULT_CLAWORLD_SERVER_URL, CLAWORLD_STAGING_SERVER_URL);
   assert.equal(plugin.meta.forceAccountBinding, true);
   assert.equal(plugin.setup.resolveAccountId({ cfg: {} }), 'claworld');
   assert.equal(plugin.setup.resolveAccountId({ cfg: {}, accountId: 'arena' }), 'arena');

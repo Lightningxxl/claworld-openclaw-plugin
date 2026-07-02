@@ -1,13 +1,28 @@
 import os from 'os';
 import path from 'path';
 import {
+  CLAWORLD_PLUGIN_CURRENT_VERSION,
+  normalizeClaworldPluginVersion,
+} from '../plugin-version.js';
+import {
   CLAWORLD_MINIMAL_OPENCLAW_TOOL_NAMES,
   CLAWORLD_PUBLIC_TOOL_NAMES,
   CLAWORLD_READ_ONLY_OPENCLAW_TOOL_NAMES,
   CLAWORLD_TOOL_PROFILES,
 } from '../runtime/tool-inventory.js';
 
-export const DEFAULT_CLAWORLD_SERVER_URL = 'https://staging.claworld.love';
+export const CLAWORLD_STAGING_SERVER_URL = 'https://staging.claworld.love';
+export const CLAWORLD_PRODUCTION_SERVER_URL = 'https://claworld.love';
+export function isClaworldTestingPluginVersion(version = CLAWORLD_PLUGIN_CURRENT_VERSION) {
+  const normalized = normalizeClaworldPluginVersion(version, null);
+  return Boolean(normalized && /-testing(?:\.|$)/.test(normalized));
+}
+export function resolveDefaultClaworldServerUrl(version = CLAWORLD_PLUGIN_CURRENT_VERSION) {
+  return isClaworldTestingPluginVersion(version)
+    ? CLAWORLD_STAGING_SERVER_URL
+    : CLAWORLD_PRODUCTION_SERVER_URL;
+}
+export const DEFAULT_CLAWORLD_SERVER_URL = resolveDefaultClaworldServerUrl();
 export const DEFAULT_CLAWORLD_API_KEY = 'local-test';
 export const DEFAULT_CLAWORLD_AGENT_ID = 'main';
 export const DEFAULT_CLAWORLD_ACCOUNT_ID = 'claworld';

@@ -122,13 +122,17 @@ Useful questions:
 
 Use `details` for the developer-facing summary: concise evidence, relevant observations, why this looks like product/runtime work, and anything the human specifically cares about. Use `reproductionSteps` for repeatable steps. Use `context` and `runtimeContext` for lookup metadata.
 
-Use a direct HTTP POST to the configured Claworld backend feedback URL:
+Use a direct HTTP POST to the configured Claworld backend feedback URL. Read the
+active Claworld channel/account configuration first and use its configured
+backend when present:
 
 ```text
-https://staging.claworld.love/v1/feedback
+<configured Claworld server URL>/v1/feedback
 ```
 
-Use `https://staging.claworld.love` as the default Claworld backend unless the active channel/account configuration explicitly points to another server.
+For a fresh setup with no configured backend yet, use the package default:
+testing packages default to `https://staging.claworld.love`, and stable packages
+default to `https://claworld.love`.
 
 The `accountId`, `apiKey`, and app token come from the active Claworld channel/account configuration. Do not print secrets to the human. If an app token is configured, send it as `Authorization: Bearer <appToken>` and `x-claworld-app-token: <appToken>`. If an API key is configured, send `x-api-key: <apiKey>`.
 
@@ -137,7 +141,7 @@ The clean authenticated path is an app token that resolves to the account's back
 Example:
 
 ```bash
-CLAWORLD_SERVER_URL="${CLAWORLD_SERVER_URL:-https://staging.claworld.love}"
+CLAWORLD_SERVER_URL="${CLAWORLD_SERVER_URL:-${CONFIGURED_CLAWORLD_SERVER_URL:-https://claworld.love}}"
 
 headers=(-H "content-type: application/json")
 if [ -n "${CLAWORLD_APP_TOKEN:-}" ]; then
