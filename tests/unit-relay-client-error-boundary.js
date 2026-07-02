@@ -3,6 +3,8 @@ import { EventEmitter } from 'events';
 import { setTimeout as delay } from 'timers/promises';
 import { createClaworldRelayClient } from '../src/openclaw/index.js';
 
+const keepAlive = setInterval(() => {}, 1000);
+
 class FakeWebSocket extends EventEmitter {
   constructor() {
     super();
@@ -106,6 +108,27 @@ async function main() {
   assert.equal(replied.transport, 'websocket');
   assert.equal(replied.ack.data.repliedDeliveryId, 'dlv_reply_race');
 
+  const timeoutWs = new FakeWebSocket();
+  const timeoutClient = createClaworldRelayClient({
+    wsFactory: () => timeoutWs,
+    authTimeoutMs: 5,
+  });
+  const timeoutPromise = timeoutClient.connect({
+    config: {
+      enabled: true,
+      serverUrl: 'http://127.0.0.1:8787',
+      apiKey: 'demo-plugin-key',
+      accountId: 'auth-timeout-test',
+      heartbeatSeconds: 1,
+    },
+    agentId: 'agt_auth_timeout',
+    credential: { type: 'agent_token', token: 'relay_at_auth_timeout' },
+    clientVersion: 'unit-relay-client-auth-timeout',
+  });
+  timeoutWs.open();
+  await assert.rejects(timeoutPromise, /relay authentication/);
+  assert.equal(timeoutClient.snapshot().connectionState, 'error');
+
   let acceptAttempts = 0;
   const retryingClient = createClaworldRelayClient({
     httpFetch: async () => {
@@ -135,6 +158,14 @@ async function main() {
   assert.equal(acceptedAfterRetry.status, 200);
   assert.equal(acceptedAfterRetry.body.acceptedDeliveryId, 'dlv_retry');
   assert.equal(acceptAttempts, 3);
+
+  const backoffClient = createClaworldRelayClient({
+    reconnectJitterRatio: 0,
+  });
+  assert.deepEqual(
+    [1, 2, 3, 7, 12].map((attempt) => backoffClient.resolveReconnectDelayMs(attempt)),
+    [1000, 2000, 4000, 60000, 60000],
+  );
 
   let preSendReplyFallbackAttempts = 0;
   const preSendReplyFallbackClient = createClaworldRelayClient({
@@ -205,6 +236,73 @@ async function main() {
   assert.equal(sendErrorReplyFallback.ack.data.repliedDeliveryId, 'dlv_reply_send_error_fallback');
   assert.equal(sendErrorReplyFallbackAttempts, 1);
 
+  let acceptedFallbackAttempts = 0;
+  const acceptedFallbackClient = createClaworldRelayClient({
+    httpFetch: async () => {
+      acceptedFallbackAttempts += 1;
+      return {
+        status: 200,
+        async json() {
+          return { acceptedDeliveryId: 'dlv_accept_pre_send_fallback' };
+        },
+      };
+    },
+  });
+  acceptedFallbackClient.serverUrl = 'http://127.0.0.1:8787';
+  acceptedFallbackClient.runtimeConfig = {
+    accountId: 'accept-pre-send-fallback',
+    apiKey: 'accept-pre-send-fallback-key',
+  };
+  acceptedFallbackClient.boundAgentId = 'agt_accept_pre_send_fallback';
+  acceptedFallbackClient.ws = { readyState: 3, send() {} };
+
+  const acceptedFallback = await acceptedFallbackClient.sendAcceptedAndWaitForAck({
+    deliveryId: 'dlv_accept_pre_send_fallback',
+    sessionKey: 'conversation:test',
+    timeoutMs: 20,
+    httpFallback: true,
+  });
+  assert.equal(acceptedFallback.transport, 'http');
+  assert.equal(acceptedFallback.fallbackUsed, true);
+  assert.equal(acceptedFallback.ack.data.acceptedDeliveryId, 'dlv_accept_pre_send_fallback');
+  assert.equal(acceptedFallbackAttempts, 1);
+
+  let acceptedSendErrorFallbackAttempts = 0;
+  const acceptedSendErrorFallbackClient = createClaworldRelayClient({
+    httpFetch: async () => {
+      acceptedSendErrorFallbackAttempts += 1;
+      return {
+        status: 200,
+        async json() {
+          return { acceptedDeliveryId: 'dlv_accept_send_error_fallback' };
+        },
+      };
+    },
+  });
+  acceptedSendErrorFallbackClient.serverUrl = 'http://127.0.0.1:8787';
+  acceptedSendErrorFallbackClient.runtimeConfig = {
+    accountId: 'accept-send-error-fallback',
+    apiKey: 'accept-send-error-fallback-key',
+  };
+  acceptedSendErrorFallbackClient.boundAgentId = 'agt_accept_send_error_fallback';
+  acceptedSendErrorFallbackClient.ws = {
+    readyState: 1,
+    send() {
+      throw new Error('socket send failed');
+    },
+  };
+
+  const acceptedSendErrorFallback = await acceptedSendErrorFallbackClient.sendAcceptedAndWaitForAck({
+    deliveryId: 'dlv_accept_send_error_fallback',
+    sessionKey: 'conversation:test',
+    timeoutMs: 20,
+    httpFallback: true,
+  });
+  assert.equal(acceptedSendErrorFallback.transport, 'http');
+  assert.equal(acceptedSendErrorFallback.fallbackUsed, true);
+  assert.equal(acceptedSendErrorFallback.ack.data.acceptedDeliveryId, 'dlv_accept_send_error_fallback');
+  assert.equal(acceptedSendErrorFallbackAttempts, 1);
+
   let keptSilentFallbackAttempts = 0;
   const keptSilentFallbackClient = createClaworldRelayClient({
     httpFetch: async () => {
@@ -249,11 +347,13 @@ async function main() {
   assert.ok(logs.some((entry) => String(entry[1]).includes('invalid relay message')));
 
   await client.close();
+  clearInterval(keepAlive);
 
   console.log('PASS unit-relay-client-error-boundary');
 }
 
 main().catch((error) => {
+  clearInterval(keepAlive);
   console.error('FAIL unit-relay-client-error-boundary');
   console.error(error);
   process.exit(1);

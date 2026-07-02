@@ -32,6 +32,10 @@ import {
 
 const DELIVERY_VISIBILITY_RETRY_ATTEMPTS = 20;
 const DELIVERY_VISIBILITY_RETRY_DELAY_MS = 10;
+const DEFAULT_RELAY_AUTH_TIMEOUT_MS = 30_000;
+const DEFAULT_RECONNECT_BASE_DELAY_MS = 1_000;
+const DEFAULT_RECONNECT_MAX_DELAY_MS = 60_000;
+const DEFAULT_RECONNECT_JITTER_RATIO = 0.2;
 
 function isDeliveryVisibilityMiss(result = {}) {
   return Number(result?.status) === 404
@@ -53,6 +57,11 @@ export class ClaworldRelayClient extends EventEmitter {
     protocol = createRelayEventProtocol(),
     wsFactory = (url) => new WebSocket(url),
     httpFetch = globalThis.fetch,
+    authTimeoutMs = DEFAULT_RELAY_AUTH_TIMEOUT_MS,
+    reconnectBaseDelayMs = DEFAULT_RECONNECT_BASE_DELAY_MS,
+    reconnectMaxDelayMs = DEFAULT_RECONNECT_MAX_DELAY_MS,
+    reconnectJitterRatio = DEFAULT_RECONNECT_JITTER_RATIO,
+    random = Math.random,
   } = {}) {
     super();
     this.logger = logger;
@@ -61,6 +70,11 @@ export class ClaworldRelayClient extends EventEmitter {
     this.protocol = protocol;
     this.wsFactory = wsFactory;
     this.httpFetch = httpFetch;
+    this.authTimeoutMs = Math.max(1, Math.floor(Number(authTimeoutMs) || DEFAULT_RELAY_AUTH_TIMEOUT_MS));
+    this.reconnectBaseDelayMs = Math.max(1, Math.floor(Number(reconnectBaseDelayMs) || DEFAULT_RECONNECT_BASE_DELAY_MS));
+    this.reconnectMaxDelayMs = Math.max(this.reconnectBaseDelayMs, Math.floor(Number(reconnectMaxDelayMs) || DEFAULT_RECONNECT_MAX_DELAY_MS));
+    this.reconnectJitterRatio = Math.max(0, Math.min(1, Number(reconnectJitterRatio) || 0));
+    this.random = typeof random === 'function' ? random : Math.random;
     this.ws = null;
     this.events = [];
     this.heartbeatTimer = null;
@@ -103,9 +117,17 @@ export class ClaworldRelayClient extends EventEmitter {
     this.reconnectTimer = null;
   }
 
-  resolveReconnectDelayMs() {
-    const heartbeatSeconds = Number(this.runtimeConfig?.heartbeatSeconds || 1);
-    return Math.min(5000, Math.max(500, Math.floor(heartbeatSeconds * 500)));
+  resolveReconnectDelayMs(attempt = this.reconnectAttempts + 1) {
+    const normalizedAttempt = Math.max(1, Math.floor(Number(attempt) || 1));
+    const exponent = Math.min(normalizedAttempt - 1, 10);
+    const baseDelayMs = Math.min(
+      this.reconnectMaxDelayMs,
+      this.reconnectBaseDelayMs * (2 ** exponent),
+    );
+    const jitterWindowMs = Math.floor(baseDelayMs * this.reconnectJitterRatio);
+    if (jitterWindowMs <= 0) return baseDelayMs;
+    const jitterMs = Math.floor(Math.max(0, Math.min(1, Number(this.random()) || 0)) * jitterWindowMs);
+    return Math.min(this.reconnectMaxDelayMs, baseDelayMs + jitterMs);
   }
 
   shouldAutoReconnect(disconnectInfo = null) {
@@ -285,8 +307,58 @@ export class ClaworldRelayClient extends EventEmitter {
     return await new Promise((resolve, reject) => {
       let settled = false;
       let suppressCloseHandler = false;
+      let authTimer = null;
       const ws = this.wsFactory(wsUrl);
       this.ws = ws;
+
+      const clearAuthTimer = () => {
+        if (authTimer) clearTimeout(authTimer);
+        authTimer = null;
+      };
+
+      const closeSocketAfterFailedAuth = (reason = 'auth_failed') => {
+        try {
+          if (this.ws === ws) this.ws = null;
+          if (ws.readyState !== 3) ws.close(1008, reason);
+        } catch {
+          // No-op.
+        }
+      };
+
+      const settleAuthResolve = (message) => {
+        if (settled) return;
+        settled = true;
+        clearAuthTimer();
+        resolve(message);
+      };
+
+      const settleAuthReject = (error, { suppressClose = false, closeReason = null } = {}) => {
+        if (settled) return;
+        settled = true;
+        clearAuthTimer();
+        if (suppressClose) suppressCloseHandler = true;
+        this.connectionState = 'error';
+        if (closeReason) closeSocketAfterFailedAuth(closeReason);
+        reject(error);
+      };
+
+      authTimer = setTimeout(() => {
+        const timeoutError = createRuntimeBoundaryError({
+          code: 'relay_auth_timeout',
+          category: 'transport',
+          status: 504,
+          message: `timed out waiting for relay authentication after ${this.authTimeoutMs}ms`,
+          publicMessage: 'relay authentication timed out',
+          recoverable: true,
+          context: this.buildBoundaryContext({
+            stage: 'auth',
+            timeoutMs: this.authTimeoutMs,
+          }),
+        });
+        timeoutError.reason = 'auth_timeout';
+        timeoutError.close = this.buildDisconnectInfo(null, 'auth_timeout', 'auth');
+        settleAuthReject(timeoutError, { suppressClose: true, closeReason: 'auth_timeout' });
+      }, this.authTimeoutMs);
 
       ws.on('open', () => {
         this.logger.info?.('[claworld:relay-client] websocket open, sending auth', {
@@ -295,13 +367,17 @@ export class ClaworldRelayClient extends EventEmitter {
           clientVersion,
           bridgeProtocol: this.protocol.version,
         });
-        this.send({
-          type: 'auth',
-          agentId,
-          credential,
-          clientVersion,
-          bridgeProtocol: this.protocol.version,
-        });
+        try {
+          this.send({
+            type: 'auth',
+            agentId,
+            credential,
+            clientVersion,
+            bridgeProtocol: this.protocol.version,
+          });
+        } catch (error) {
+          settleAuthReject(error, { suppressClose: true, closeReason: 'auth_send_failed' });
+        }
       });
 
       ws.on('message', (buf) => {
@@ -316,9 +392,7 @@ export class ClaworldRelayClient extends EventEmitter {
             context: { stage: 'message_parse' },
           });
           if (!settled) {
-            settled = true;
-            this.connectionState = 'error';
-            reject(normalized);
+            settleAuthReject(normalized, { suppressClose: true, closeReason: 'message_parse_failed' });
           }
           return;
         }
@@ -327,7 +401,6 @@ export class ClaworldRelayClient extends EventEmitter {
           this.emitRelayMessage(message, { sessionTarget, fallbackTarget });
 
           if (message.event === 'auth.ok' && !settled) {
-            settled = true;
             this.connectionState = 'authenticated';
             this.reconnectAttempts = 0;
             this.logger.info?.('[claworld:relay-client] auth ok', {
@@ -335,13 +408,10 @@ export class ClaworldRelayClient extends EventEmitter {
               agentId,
             });
             this.startHeartbeatLoop();
-            resolve(message);
+            settleAuthResolve(message);
           }
 
           if (message.event === 'error' && !settled && message.data?.code === 'unauthorized') {
-            settled = true;
-            suppressCloseHandler = true;
-            this.connectionState = 'error';
             const authReason = message.data?.reason || message.data?.error || 'unauthorized';
             const authError = createRuntimeBoundaryError({
               code: message.data?.code || 'unauthorized',
@@ -364,7 +434,7 @@ export class ClaworldRelayClient extends EventEmitter {
               error: authError.message,
               code: authError.code,
             });
-            reject(authError);
+            settleAuthReject(authError, { suppressClose: true, closeReason: authReason });
           }
         } catch (error) {
           const normalized = this.emitBoundaryError('[claworld:relay-client] relay message handling failed', error, {
@@ -377,10 +447,7 @@ export class ClaworldRelayClient extends EventEmitter {
             },
           });
           if (!settled) {
-            settled = true;
-            suppressCloseHandler = true;
-            this.connectionState = 'error';
-            reject(normalized);
+            settleAuthReject(normalized, { suppressClose: true, closeReason: 'message_handling_failed' });
           }
         }
       });
@@ -402,6 +469,7 @@ export class ClaworldRelayClient extends EventEmitter {
 
         if (!settled) {
           settled = true;
+          clearAuthTimer();
           this.connectionState = disconnectInfo.reason === 'duplicate_connection_replaced' ? 'replaced' : 'error';
           reject(this.createClosedBeforeAuthError(disconnectInfo));
           return;
@@ -430,11 +498,8 @@ export class ClaworldRelayClient extends EventEmitter {
           },
         });
         if (!settled) {
-          settled = true;
-          suppressCloseHandler = true;
-          this.connectionState = 'error';
           normalized.reason = normalized.reason || normalized.code || normalized.message;
-          reject(normalized);
+          settleAuthReject(normalized, { suppressClose: true, closeReason: 'connect_error' });
         }
       });
     });
@@ -448,8 +513,8 @@ export class ClaworldRelayClient extends EventEmitter {
     }
 
     this.clearReconnectTimer();
-    const delayMs = this.resolveReconnectDelayMs();
     const attempt = this.reconnectAttempts + 1;
+    const delayMs = this.resolveReconnectDelayMs(attempt);
     this.reconnectAttempts = attempt;
     this.logger.warn?.('[claworld:relay-client] scheduling reconnect', {
       accountId: this.runtimeConfig?.accountId || null,
@@ -793,7 +858,7 @@ export class ClaworldRelayClient extends EventEmitter {
     });
   }
 
-  waitForAcceptedAck({ deliveryId, timeoutMs = DEFAULT_REPLY_ACK_TIMEOUT_MS } = {}) {
+  waitForAcceptedAck({ deliveryId, timeoutMs = DEFAULT_REPLY_ACK_TIMEOUT_MS, signal = null } = {}) {
     const normalizedDeliveryId = normalizeOptionalText(deliveryId);
     if (!normalizedDeliveryId) {
       return Promise.reject(createRuntimeBoundaryError({
@@ -803,6 +868,20 @@ export class ClaworldRelayClient extends EventEmitter {
         message: 'deliveryId is required to wait for relay delivery acceptance acknowledgement',
         publicMessage: 'deliveryId is required',
         recoverable: true,
+      }));
+    }
+    if (signal?.aborted) {
+      return Promise.reject(createRuntimeBoundaryError({
+        code: 'relay_delivery_accept_ack_wait_cancelled',
+        category: 'transport',
+        status: 499,
+        message: `relay delivery acceptance acknowledgement wait cancelled for ${normalizedDeliveryId}`,
+        publicMessage: 'relay delivery acceptance acknowledgement wait cancelled',
+        recoverable: true,
+        context: this.buildBoundaryContext({
+          stage: 'delivery_accept_ack_wait',
+          deliveryId: normalizedDeliveryId,
+        }),
       }));
     }
 
@@ -815,6 +894,7 @@ export class ClaworldRelayClient extends EventEmitter {
         this.off('delivery.accepted', onAccepted);
         this.off('disconnect', onDisconnect);
         this.off('close', onDisconnect);
+        signal?.removeEventListener('abort', onAbort);
       };
 
       const settleResolve = (value) => {
@@ -854,9 +934,25 @@ export class ClaworldRelayClient extends EventEmitter {
         }));
       };
 
+      const onAbort = () => {
+        settleReject(createRuntimeBoundaryError({
+          code: 'relay_delivery_accept_ack_wait_cancelled',
+          category: 'transport',
+          status: 499,
+          message: `relay delivery acceptance acknowledgement wait cancelled for ${normalizedDeliveryId}`,
+          publicMessage: 'relay delivery acceptance acknowledgement wait cancelled',
+          recoverable: true,
+          context: this.buildBoundaryContext({
+            stage: 'delivery_accept_ack_wait',
+            deliveryId: normalizedDeliveryId,
+          }),
+        }));
+      };
+
       this.on('delivery.accepted', onAccepted);
       this.on('disconnect', onDisconnect);
       this.on('close', onDisconnect);
+      signal?.addEventListener('abort', onAbort, { once: true });
 
       timeout = setTimeout(() => {
         settleReject(buildAcceptedAckTimeoutError({
@@ -1097,6 +1193,52 @@ export class ClaworldRelayClient extends EventEmitter {
     };
   }
 
+  async submitAcceptedHttpFallback({
+    deliveryId,
+    sessionKey,
+    source = 'runtime_dispatch',
+    error = null,
+  } = {}) {
+    this.logger.warn?.('[claworld:relay-client] delivery acceptance websocket transport failed; attempting HTTP fallback', {
+      accountId: this.runtimeConfig?.accountId || null,
+      agentId: this.boundAgentId,
+      deliveryId: normalizeOptionalText(deliveryId),
+      sessionKey: normalizeOptionalText(sessionKey) || null,
+      error: error?.message || String(error),
+    });
+
+    const fallbackResult = await this.acceptDeliveryHttp({
+      deliveryId,
+      sessionKey,
+      source,
+    });
+
+    if (fallbackResult.status >= 200 && fallbackResult.status < 300) {
+      return {
+        ok: true,
+        envelope: fallbackResult.envelope,
+        ack: {
+          event: 'delivery.accepted',
+          data: fallbackResult.body,
+        },
+        transport: 'http',
+        fallbackUsed: true,
+      };
+    }
+
+    throw buildReplyFallbackError({
+      deliveryId: fallbackResult.envelope.deliveryId,
+      status: fallbackResult.status,
+      body: fallbackResult.body,
+      context: this.buildBoundaryContext({
+        stage: 'delivery_accept_fallback',
+        deliveryId: fallbackResult.envelope.deliveryId,
+        sessionKey: normalizeOptionalText(sessionKey) || null,
+        fallbackFrom: error?.code || error?.message || null,
+      }),
+    });
+  }
+
   async sendReplyAndWaitForAck({
     deliveryId,
     sessionKey,
@@ -1190,15 +1332,40 @@ export class ClaworldRelayClient extends EventEmitter {
     timeoutMs = DEFAULT_REPLY_ACK_TIMEOUT_MS,
     httpFallback = true,
   } = {}) {
+    if (httpFallback && (!this.ws || this.ws.readyState !== 1)) {
+      return await this.submitAcceptedHttpFallback({
+        deliveryId,
+        sessionKey,
+        source,
+        error: this.buildWsNotConnectedError('delivery_accept_send'),
+      });
+    }
+
+    const ackAbortController = new AbortController();
     const ackPromise = this.waitForAcceptedAck({
       deliveryId,
       timeoutMs,
+      signal: ackAbortController.signal,
     });
-    const envelope = this.sendAccepted({
-      deliveryId,
-      sessionKey,
-      source,
-    });
+    let envelope;
+
+    try {
+      envelope = this.sendAccepted({
+        deliveryId,
+        sessionKey,
+        source,
+      });
+    } catch (error) {
+      ackAbortController.abort();
+      void ackPromise.catch(() => {});
+      if (!httpFallback) throw error;
+      return await this.submitAcceptedHttpFallback({
+        deliveryId,
+        sessionKey,
+        source,
+        error,
+      });
+    }
 
     try {
       const ack = await ackPromise;
@@ -1212,43 +1379,11 @@ export class ClaworldRelayClient extends EventEmitter {
     } catch (error) {
       if (!httpFallback) throw error;
 
-      this.logger.warn?.('[claworld:relay-client] delivery acceptance websocket acknowledgement failed; attempting HTTP fallback', {
-        accountId: this.runtimeConfig?.accountId || null,
-        agentId: this.boundAgentId,
-        deliveryId: envelope.deliveryId,
-        sessionKey: envelope.sessionKey,
-        error: error?.message || String(error),
-      });
-
-      const fallbackResult = await this.acceptDeliveryHttp({
+      return await this.submitAcceptedHttpFallback({
         deliveryId: envelope.deliveryId,
         sessionKey: envelope.sessionKey,
         source: envelope.source,
-      });
-
-      if (fallbackResult.status >= 200 && fallbackResult.status < 300) {
-        return {
-          ok: true,
-          envelope,
-          ack: {
-            event: 'delivery.accepted',
-            data: fallbackResult.body,
-          },
-          transport: 'http',
-          fallbackUsed: true,
-        };
-      }
-
-      throw buildReplyFallbackError({
-        deliveryId: envelope.deliveryId,
-        status: fallbackResult.status,
-        body: fallbackResult.body,
-        context: this.buildBoundaryContext({
-          stage: 'delivery_accept_fallback',
-          deliveryId: envelope.deliveryId,
-          sessionKey: envelope.sessionKey,
-          fallbackFrom: error?.code || error?.message || null,
-        }),
+        error,
       });
     }
   }
