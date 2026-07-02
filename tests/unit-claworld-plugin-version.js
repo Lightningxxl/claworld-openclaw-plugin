@@ -1,8 +1,14 @@
 import assert from 'assert';
+import { buildRuntimeAuthHeaders } from '../src/openclaw/plugin/account-identity.js';
 import {
   buildClaworldRelayClientVersion,
+  CLAWORLD_CLIENT_CHANNEL_HEADER,
+  CLAWORLD_CLIENT_HEADER,
+  CLAWORLD_CLIENT_VERSION_HEADER,
+  CLAWORLD_OPENCLAW_PLUGIN_CLIENT,
   CLAWORLD_PLUGIN_CURRENT_VERSION,
   CLAWORLD_PLUGIN_VERSION_HEADER,
+  inferClaworldClientChannel,
   readClaworldPluginVersionFromHeaders,
 } from '../src/openclaw/plugin-version.js';
 
@@ -36,5 +42,11 @@ assert.equal(
   buildClaworldRelayClientVersion(TESTING_PRERELEASE_VERSION),
   `claworld-plugin/${TESTING_PRERELEASE_VERSION}`,
 );
+
+const runtimeHeaders = buildRuntimeAuthHeaders({ appToken: 'tok' });
+assert.equal(runtimeHeaders[CLAWORLD_CLIENT_HEADER], CLAWORLD_OPENCLAW_PLUGIN_CLIENT);
+assert.equal(runtimeHeaders[CLAWORLD_CLIENT_VERSION_HEADER], CLAWORLD_PLUGIN_CURRENT_VERSION);
+assert.equal(runtimeHeaders[CLAWORLD_CLIENT_CHANNEL_HEADER], inferClaworldClientChannel());
+assert.equal(runtimeHeaders[CLAWORLD_PLUGIN_VERSION_HEADER], CLAWORLD_PLUGIN_CURRENT_VERSION);
 
 console.log('PASS unit-claworld-plugin-version');

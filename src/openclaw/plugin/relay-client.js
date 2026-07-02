@@ -2,7 +2,11 @@ import { EventEmitter } from 'events';
 import WebSocket from 'ws';
 import { resolveClaworldRuntimeConfig } from './config-schema.js';
 import { buildRuntimeAuthHeaders } from './account-identity.js';
-import { buildClaworldRelayClientVersion } from '../plugin-version.js';
+import {
+  buildClaworldRelayClientVersion,
+  CLAWORLD_OPENCLAW_PLUGIN_CLIENT,
+  CLAWORLD_PLUGIN_CURRENT_VERSION,
+} from '../plugin-version.js';
 import { createRelayEventProtocol } from '../protocol/relay-event-protocol.js';
 import { createInboundSessionRouter } from '../runtime/inbound-session-router.js';
 import { createOutboundSessionBridge } from '../runtime/outbound-session-bridge.js';
@@ -372,7 +376,9 @@ export class ClaworldRelayClient extends EventEmitter {
             type: 'auth',
             agentId,
             credential,
+            client: CLAWORLD_OPENCLAW_PLUGIN_CLIENT,
             clientVersion,
+            legacyClientVersion: buildClaworldRelayClientVersion(clientVersion),
             bridgeProtocol: this.protocol.version,
           });
         } catch (error) {
@@ -552,7 +558,7 @@ export class ClaworldRelayClient extends EventEmitter {
     config,
     agentId,
     credential = null,
-    clientVersion = buildClaworldRelayClientVersion(),
+    clientVersion = CLAWORLD_PLUGIN_CURRENT_VERSION,
     sessionTarget,
     fallbackTarget,
   } = {}) {

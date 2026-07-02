@@ -1,6 +1,11 @@
 import {
+  CLAWORLD_CLIENT_CHANNEL_HEADER,
+  CLAWORLD_CLIENT_HEADER,
+  CLAWORLD_CLIENT_VERSION_HEADER,
+  CLAWORLD_OPENCLAW_PLUGIN_CLIENT,
   CLAWORLD_PLUGIN_CURRENT_VERSION,
   CLAWORLD_PLUGIN_VERSION_HEADER,
+  inferClaworldClientChannel,
 } from '../plugin-version.js';
 
 function normalizeText(value, fallback = null) {
@@ -59,6 +64,9 @@ export function buildRuntimeAuthHeaders(runtimeConfig = {}, headers = {}) {
   const appToken = resolveRuntimeAppToken(runtimeConfig);
   const nextHeaders = {
     ...headers,
+    [CLAWORLD_CLIENT_HEADER]: CLAWORLD_OPENCLAW_PLUGIN_CLIENT,
+    [CLAWORLD_CLIENT_VERSION_HEADER]: CLAWORLD_PLUGIN_CURRENT_VERSION,
+    [CLAWORLD_CLIENT_CHANNEL_HEADER]: inferClaworldClientChannel(),
     [CLAWORLD_PLUGIN_VERSION_HEADER]: CLAWORLD_PLUGIN_CURRENT_VERSION,
   };
   if (!appToken) return nextHeaders;

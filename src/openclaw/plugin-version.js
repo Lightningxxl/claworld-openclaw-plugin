@@ -2,6 +2,10 @@ import repoPackageJson from '../../package.json' with { type: 'json' };
 
 export const CLAWORLD_PLUGIN_PACKAGE_NAME = '@xfxstudio/claworld';
 export const CLAWORLD_PLUGIN_VERSION_HEADER = 'x-claworld-plugin-version';
+export const CLAWORLD_CLIENT_HEADER = 'x-claworld-client';
+export const CLAWORLD_CLIENT_VERSION_HEADER = 'x-claworld-client-version';
+export const CLAWORLD_CLIENT_CHANNEL_HEADER = 'x-claworld-client-channel';
+export const CLAWORLD_OPENCLAW_PLUGIN_CLIENT = 'openclaw-plugin';
 
 function normalizeText(value, fallback = null) {
   if (value == null) return fallback;
@@ -38,6 +42,13 @@ function resolveCurrentPluginVersion() {
 }
 
 export const CLAWORLD_PLUGIN_CURRENT_VERSION = resolveCurrentPluginVersion();
+
+export function inferClaworldClientChannel(version = CLAWORLD_PLUGIN_CURRENT_VERSION, fallback = null) {
+  const normalized = normalizeClaworldPluginVersion(version, null);
+  if (!normalized) return fallback;
+  if (/-testing(?:\.|$)/.test(normalized)) return 'testing';
+  return 'stable';
+}
 
 export function readClaworldPluginVersionFromHeaders(headers = {}) {
   const rawVersion = normalizeHeaderValue(headers?.[CLAWORLD_PLUGIN_VERSION_HEADER]);
