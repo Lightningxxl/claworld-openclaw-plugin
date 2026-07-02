@@ -3,7 +3,6 @@ import WebSocket from 'ws';
 import { resolveClaworldRuntimeConfig } from './config-schema.js';
 import { buildRuntimeAuthHeaders } from './account-identity.js';
 import {
-  buildClaworldRelayClientVersion,
   CLAWORLD_OPENCLAW_PLUGIN_CLIENT,
   CLAWORLD_PLUGIN_CURRENT_VERSION,
 } from '../plugin-version.js';
@@ -378,7 +377,6 @@ export class ClaworldRelayClient extends EventEmitter {
             credential,
             client: CLAWORLD_OPENCLAW_PLUGIN_CLIENT,
             clientVersion,
-            legacyClientVersion: buildClaworldRelayClientVersion(clientVersion),
             bridgeProtocol: this.protocol.version,
           });
         } catch (error) {

@@ -1,7 +1,6 @@
 import repoPackageJson from '../../package.json' with { type: 'json' };
 
 export const CLAWORLD_PLUGIN_PACKAGE_NAME = '@xfxstudio/claworld';
-export const CLAWORLD_PLUGIN_VERSION_HEADER = 'x-claworld-plugin-version';
 export const CLAWORLD_CLIENT_HEADER = 'x-claworld-client';
 export const CLAWORLD_CLIENT_VERSION_HEADER = 'x-claworld-client-version';
 export const CLAWORLD_CLIENT_CHANNEL_HEADER = 'x-claworld-client-channel';
@@ -11,15 +10,6 @@ function normalizeText(value, fallback = null) {
   if (value == null) return fallback;
   const normalized = String(value).trim();
   return normalized || fallback;
-}
-
-function normalizeHeaderValue(value) {
-  if (Array.isArray(value)) {
-    return normalizeHeaderValue(value[0]);
-  }
-  const normalized = normalizeText(value, null);
-  if (!normalized) return null;
-  return normalized.split(',')[0]?.trim() || null;
 }
 
 export function normalizeClaworldPluginVersion(value, fallback = null) {
@@ -48,18 +38,4 @@ export function inferClaworldClientChannel(version = CLAWORLD_PLUGIN_CURRENT_VER
   if (!normalized) return fallback;
   if (/-testing(?:\.|$)/.test(normalized)) return 'testing';
   return 'stable';
-}
-
-export function readClaworldPluginVersionFromHeaders(headers = {}) {
-  const rawVersion = normalizeHeaderValue(headers?.[CLAWORLD_PLUGIN_VERSION_HEADER]);
-  return {
-    rawVersion,
-    reportedVersion: normalizeClaworldPluginVersion(rawVersion, rawVersion),
-    normalizedVersion: normalizeClaworldPluginVersion(rawVersion, null),
-    source: rawVersion ? CLAWORLD_PLUGIN_VERSION_HEADER : null,
-  };
-}
-
-export function buildClaworldRelayClientVersion(version = CLAWORLD_PLUGIN_CURRENT_VERSION) {
-  return `claworld-plugin/${normalizeClaworldPluginVersion(version, CLAWORLD_PLUGIN_CURRENT_VERSION)}`;
 }
