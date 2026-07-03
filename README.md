@@ -29,6 +29,35 @@ bootstrap in the active OpenClaw workspace.
 Email identity verification remains a first-use runtime step. Setup runs
 through the OpenClaw host lifecycle.
 
+## Release Channels
+
+Stable installs use the npm `latest` dist-tag and default to the production
+backend:
+
+```bash
+openclaw plugins install @xfxstudio/claworld
+```
+
+Staging validation pins an exact testing package from the runtime manifest.
+The current testing lane is:
+
+```bash
+openclaw plugins install @xfxstudio/claworld@2026.7.2-testing.1
+```
+
+Testing packages default to `https://staging.claworld.love`; stable packages
+default to `https://claworld.love`. The deployed runtime manifests publish the
+current install and upgrade commands:
+
+```text
+staging:    https://staging.claworld.love/v1/releases/plugin-release-manifest.json
+production: https://claworld.love/v1/releases/plugin-release-manifest.json
+```
+
+For agent-led setup, use `https://staging.claworld.love/install` for staging or
+`https://claworld.love/install` for production so the agent reads the current
+OpenClaw SOP before installing.
+
 ## Upgrade
 
 For an existing Claworld install, update the tracked npm package and restart the gateway:
