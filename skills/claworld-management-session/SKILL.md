@@ -175,20 +175,17 @@ Context for you:
 
 Lookup refs for you: <compact ids when available>.
 
-Please send the owner report in the current human chat.
+Please follow these steps while communicating with me, and after sessions_send completes:
 
-First, return exactly ANNOUNCE_READY with no other text. This first reply is an internal non-silent placeholder that keeps OpenClaw's report step alive.
+Step 1: Immediately return exactly ANNOUNCE_READY with no other text to me. Do not call `message(action=send)`, any Feishu/IM send tool, or any visible channel tool for ANNOUNCE_READY. This first reply is only an internal round-one marker that lets `sessions_send` trigger the report announce step; it must never be posted to the human.
 
-When OpenClaw later sends you:
-Agent-to-agent announce step.
+Step 2: After `sessions_send` completes, OpenClaw will later send you: "Agent-to-agent announce step". Respond with exactly the report under `Here is the exact report:` below and no other text as assistant text. Do not include the label itself. Do not call `message(action=send)` in the announce step, and do not answer ANNOUNCE_SKIP.
 
-Respond with exactly the report below and no other text:
+Here is the exact report:
 
 <exact report>
 
 ```
-
-You should normally see Main's immediate `ANNOUNCE_READY` reply for a successful report. The exact report text belongs in the later `Agent-to-agent announce step.` response, which Main sends to the human chat.
 
 ### How to Write the Actual Report
 
@@ -249,12 +246,12 @@ After `sessions_send` returns, record what happened in local working memory when
 - the `sessions_send` run id, when available
 - source event, notification, chat request, or conversation ids
 - timestamp
-- a one-line summary of what you reported
+- a one-line summary of what you handed off
 
-If `sessions_send` returns `status=ok` and Main replies exactly `ANNOUNCE_READY`, the report succeeded. Mark the owner as notified.
+If you recently sent a report with `sessions_send` and then see content come back from Main as an inter-session message, treat it as delivery echo, ack, fallback, or announce-flow residue, not a new task. Reply exactly `NO_REPLY`. Do not restate the report, and do not send another `sessions_send` for the same event. If the message contains a real new owner instruction, error, or delivery failure, record it in `NOW.md` or the report artifact and handle it intentionally; still use `NO_REPLY` to close the inter-session ping-pong.
+
+If `sessions_send` returns `status=ok` and Main returns a substantive reply, the Management reporting duty is complete: the handoff reached Main and should allow OpenClaw's announce step to follow. `ANNOUNCE_READY` is the preferred first reply, but it is not required for Management to consider the handoff complete. If Main replies with other substantive text, record it as an unexpected first reply when useful, but do not retry, do not restate the report, and do not mark the handoff as failed. Management usually does not see the later announce-step delivery result; final visible delivery is Main/OpenClaw's responsibility.
+
+If `sessions_send` returns `status=ok` but no `reply`, times out, errors, or Main replies only with a non-deliverable control token such as `NO_REPLY`, `REPLY_SKIP`, `ANNOUNCE_SKIP`, or `HEARTBEAT_OK`, treat the handoff as incomplete because the announce step may not be triggered. Record the pending state, keep the report as an open item in `NOW.md`, and avoid sending another placeholder.
 
 If `sessions_send` fails because the route was missing, use `sessions_list` to find the latest owner-facing Main Session and retry with its `sessionKey` and send it. If the retry also fails, write a report artifact, journal the routing failure, and keep the report as an open item in `NOW.md`.
-
-If Main replies with anything other than `ANNOUNCE_READY`, treat the report as failed. Record the unexpected reply, write a report artifact when useful, and keep the report as an open item in `NOW.md`.
-
-If you recently sent a report with `sessions_send` and then see stuff come back to you as an inter-session message, treat it as delivery echo or ack. Reply exactly `NO_REPLY` unless the echo or ack contains a new owner instruction, an error, or a delivery failure.
