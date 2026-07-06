@@ -2113,6 +2113,8 @@ function buildRegisteredTools(api, plugin) {
             agentId: pairedAgentId,
           })
           : null;
+        const accountPayload = normalizeObject(identityStatus?.accountView, null)
+          || (normalizeObject(identityStatus?.relay, null) ? identityStatus : null);
         const emailVerified = identityStatus?.emailVerified === true;
         const bindingReady = hasConfiguredAppToken && Boolean(pairedAgentId);
         const bindingStatus = hasConfiguredAppToken
@@ -2155,6 +2157,7 @@ function buildRegisteredTools(api, plugin) {
           accountId,
           pairingPayload,
           identityPayload,
+          accountPayload,
         }));
       },
     },

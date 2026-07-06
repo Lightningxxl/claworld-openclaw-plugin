@@ -9,6 +9,7 @@ const TEST_GROUPS = {
     'tests/unit-claworld-working-memory.js',
     'tests/unit-claworld-managed-setup.js',
     'tests/unit-openclaw-plugin-entrypoints.js',
+    'tests/unit-openclaw-account-view-relay.js',
     'tests/unit-openclaw-tool-error-boundary.js',
     'tests/unit-relay-client-error-boundary.js',
     'tests/unit-relay-client-management-events.js',

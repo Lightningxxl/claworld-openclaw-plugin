@@ -685,9 +685,13 @@ export function projectToolAccountViewResponse({
   accountId = null,
   pairingPayload = null,
   identityPayload = null,
+  accountPayload = null,
 } = {}) {
   const publicIdentityState = projectToolAccountIdentityFields(identityPayload);
   const accountProfile = projectToolAccountProfileState(identityPayload);
+  const accountView = normalizeObject(accountPayload, null);
+  const accountRelay = normalizeObject(accountView?.relay, null);
+  const accountDiagnostics = normalizeObject(accountView?.diagnostics, null);
   const publicIdentityReady = identityPayload?.ready === true;
   const accountProfileReady = accountProfile.ready === true;
   const emailVerified = pairingPayload?.emailVerified === true;
@@ -733,8 +737,17 @@ export function projectToolAccountViewResponse({
           missingFields: [],
           reason: null,
         };
-  const relayResolved = pairingPayload?.relayAgent?.resolved ?? null;
-  const relayOnline = pairingPayload?.relayAgent?.online ?? null;
+  const relayIdentityResolved = typeof pairingPayload?.relayAgent?.resolved === 'boolean'
+    ? pairingPayload.relayAgent.resolved
+    : null;
+  const relayOnline = typeof accountRelay?.online === 'boolean'
+    ? accountRelay.online
+    : (typeof accountDiagnostics?.relayOnline === 'boolean'
+        ? accountDiagnostics.relayOnline
+        : (typeof pairingPayload?.relayAgent?.online === 'boolean' ? pairingPayload.relayAgent.online : null));
+  const relayResolved = typeof accountRelay?.resolved === 'boolean'
+    ? accountRelay.resolved
+    : (typeof relayOnline === 'boolean');
   const resolvedShareCard = identityPayload && Object.prototype.hasOwnProperty.call(identityPayload, 'shareCard')
     ? projectToolShareCard(identityPayload.shareCard)
     : undefined;
@@ -765,6 +778,7 @@ export function projectToolAccountViewResponse({
       bindingStatus,
       publicIdentityReady,
       accountProfileReady,
+      relayIdentityResolved,
       relayPresenceResolved: relayResolved,
       relayOnline,
     },
