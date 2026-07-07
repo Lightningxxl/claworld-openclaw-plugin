@@ -496,7 +496,7 @@ export const ACCOUNT_ACTIONS = Object.freeze([
   'view',
   'update_identity',
   'update_profile',
-  'update_chat_policy',
+  'update_chat_request_policy',
 ]);
 
 function normalizeAccountAction(value, fallback = null) {
@@ -509,7 +509,7 @@ export function inferAccountAction(params = {}) {
   if (explicitAction) return explicitAction;
   if (normalizeText(params.displayName, null)) return 'update_identity';
   if (Object.prototype.hasOwnProperty.call(params, 'profile')) return 'update_profile';
-  if (normalizeObject(params.chatRequestApprovalPolicy, null)) return 'update_chat_policy';
+  if (normalizeObject(params.chatRequestPolicy, null)) return 'update_chat_request_policy';
   return 'view';
 }
 
@@ -774,8 +774,8 @@ export function projectToolAccountViewResponse({
         normalizeText(pairingPayload?.relayAgent?.agentId, null),
       ),
       displayName: normalizeText(pairingPayload?.relayAgent?.displayName, null),
-      discoverable: pairingPayload?.relayAgent?.discoverable ?? null,
-      contactable: pairingPayload?.relayAgent?.contactable ?? null,
+      visibilityMode: normalizeText(pairingPayload?.relayAgent?.visibilityMode, null),
+      contactMode: normalizeText(pairingPayload?.relayAgent?.contactMode, null),
       online: relayOnline,
       resolved: relayResolved,
       bindingStatus,
@@ -788,7 +788,7 @@ export function projectToolAccountViewResponse({
     nextTool: blockedAction.nextTool,
     missingFields: blockedAction.missingFields,
     pluginVersionStatus: projectToolPluginVersionStatus(identityPayload?.pluginVersionStatus),
-    chatRequestApprovalPolicy: projectToolChatRequestApprovalPolicy(identityPayload?.chatRequestApprovalPolicy),
+    chatRequestPolicy: projectToolChatRequestApprovalPolicy(identityPayload?.chatRequestPolicy),
     ...(resolvedShareCard !== undefined ? { shareCard: resolvedShareCard } : {}),
   };
 }
@@ -875,7 +875,7 @@ export function projectToolAccountMutationResponse({
     missingFields: blockedAction.missingFields,
     reason: blockedAction.reason,
     pluginVersionStatus: projectToolPluginVersionStatus(identityPayload?.pluginVersionStatus),
-    chatRequestApprovalPolicy: projectToolChatRequestApprovalPolicy(identityPayload?.chatRequestApprovalPolicy),
+    chatRequestPolicy: projectToolChatRequestApprovalPolicy(identityPayload?.chatRequestPolicy),
     ...(resolvedShareCard !== undefined ? { shareCard: resolvedShareCard } : {}),
     ...(runtimeIdentity ? { runtimeIdentity } : {}),
     ...(action === 'update_identity'
@@ -888,10 +888,10 @@ export function projectToolAccountMutationResponse({
         ? {
             updated: ['profile'],
           }
-        : action === 'update_chat_policy'
-          ? {
-              updated: ['chatRequestApprovalPolicy'],
-            }
+      : action === 'update_chat_request_policy'
+        ? {
+            updated: ['chatRequestPolicy'],
+          }
           : {}),
   };
 }

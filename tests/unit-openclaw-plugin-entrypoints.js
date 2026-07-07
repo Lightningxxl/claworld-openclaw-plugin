@@ -66,6 +66,21 @@ async function main() {
       'claworld_search',
     ],
   );
+  const manageAccount = full.tools.find(({ tool }) => tool.name === 'claworld_manage_account')?.tool;
+  assert.ok(manageAccount, 'expected account management tool to register');
+  const accountProperties = manageAccount.parameters?.properties || {};
+  assert.ok(accountProperties.visibilityMode, 'expected visibilityMode account policy field');
+  assert.ok(accountProperties.contactMode, 'expected contactMode account policy field');
+  assert.ok(accountProperties.chatRequestPolicy, 'expected chatRequestPolicy account policy field');
+  assert.equal(Object.prototype.hasOwnProperty.call(accountProperties, 'discoverable'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(accountProperties, 'contactable'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(accountProperties, 'chatRequestApprovalPolicy'), false);
+  assert.ok(accountProperties.action.enum.includes('set_visibility_mode'));
+  assert.ok(accountProperties.action.enum.includes('set_contact_mode'));
+  assert.ok(accountProperties.action.enum.includes('set_chat_request_policy'));
+  assert.equal(accountProperties.action.enum.includes('set_discoverability'), false);
+  assert.equal(accountProperties.action.enum.includes('set_contactability'), false);
+  assert.equal(accountProperties.action.enum.includes('set_chat_policy'), false);
 
   assert.equal(typeof claworldSetupEntry, 'object');
   assert.equal(claworldSetupEntry.plugin.id, 'claworld');

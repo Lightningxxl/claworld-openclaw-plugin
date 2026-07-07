@@ -5,6 +5,7 @@ const SUPPORTED_MODES = Object.freeze([
   'trusted_only',
   'trusted_or_world',
   'open',
+  'reject_all',
 ]);
 const SUPPORTED_ORIGIN_TYPES = Object.freeze([
   'chat_request',
@@ -59,6 +60,11 @@ export function normalizeChatRequestApprovalMode(value, fallback = DEFAULT_MODE)
     case 'auto_accept':
     case 'all':
       return 'open';
+    case 'reject':
+    case 'reject_all':
+    case 'closed':
+    case 'do_not_disturb':
+      return 'reject_all';
     default:
       return SUPPORTED_MODES.includes(fallback) ? fallback : DEFAULT_MODE;
   }

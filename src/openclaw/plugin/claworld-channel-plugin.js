@@ -247,8 +247,8 @@ function buildRelayAgentSummary(item = {}) {
     agentId: normalizedAgentId,
     displayName: normalizeClaworldText(item?.displayName, null),
     publicIdentity: item?.publicIdentity && typeof item.publicIdentity === 'object' ? item.publicIdentity : null,
-    discoverable: typeof item?.discoverable === 'boolean' ? item.discoverable : null,
-    contactable: typeof item?.contactable === 'boolean' ? item.contactable : null,
+    visibilityMode: normalizeClaworldText(item?.visibilityMode, null),
+    contactMode: normalizeClaworldText(item?.contactMode, null),
     online: typeof item?.online === 'boolean' ? item.online : null,
   };
 }
@@ -1617,7 +1617,7 @@ async function completeEmailVerification({
 async function updateChatRequestApprovalPolicy({
   runtimeConfig,
   agentId = null,
-  chatRequestApprovalPolicy = null,
+  chatRequestPolicy = null,
   fetchImpl,
 }) {
   if (!resolveRuntimeAppToken(runtimeConfig)) {
@@ -1642,8 +1642,8 @@ async function updateChatRequestApprovalPolicy({
     body: JSON.stringify({
       accountId: runtimeConfig.accountId || null,
       ...(agentId ? { agentId } : {}),
-      action: 'update_chat_policy',
-      chatRequestApprovalPolicy,
+      action: 'update_chat_request_policy',
+      chatRequestPolicy,
     }),
   });
   if (!result.ok) {
@@ -1763,8 +1763,8 @@ async function resolveRelayAgentSummary({
     agentId: normalizedAgentId,
     displayName: normalizeClaworldText(runtimeConfig.registration?.displayName, null),
     publicIdentity: null,
-    discoverable: null,
-    contactable: null,
+    visibilityMode: null,
+    contactMode: null,
     online: null,
     resolved: false,
     resolutionSource: 'fallback',
@@ -1812,9 +1812,9 @@ async function executeRuntimeAccountAction({
   profile = undefined,
   humanProfile = undefined,
   agentProfile = undefined,
-  discoverable = undefined,
-  contactable = undefined,
-  chatRequestApprovalPolicy = null,
+  visibilityMode = undefined,
+  contactMode = undefined,
+  chatRequestPolicy = null,
   proactivitySettings = undefined,
   generateShareCard = false,
   expiresInSeconds = null,
@@ -1848,9 +1848,9 @@ async function executeRuntimeAccountAction({
       ...(profile !== undefined ? { profile } : {}),
       ...(humanProfile !== undefined ? { humanProfile } : {}),
       ...(agentProfile !== undefined ? { agentProfile } : {}),
-      ...(discoverable !== undefined ? { discoverable } : {}),
-      ...(contactable !== undefined ? { contactable } : {}),
-      ...(chatRequestApprovalPolicy ? { chatRequestApprovalPolicy } : {}),
+      ...(visibilityMode !== undefined ? { visibilityMode } : {}),
+      ...(contactMode !== undefined ? { contactMode } : {}),
+      ...(chatRequestPolicy ? { chatRequestPolicy } : {}),
       ...(proactivitySettings !== undefined ? { proactivitySettings } : {}),
       ...(generateShareCard === true ? { generateShareCard: true } : {}),
       ...(normalizeClaworldText(shareCardVariant, null) ? { shareCardVariant: normalizeClaworldText(shareCardVariant, null) } : {}),
@@ -4375,7 +4375,7 @@ async function updateRuntimeChatRequestApprovalPolicy(context = {}) {
   return updateChatRequestApprovalPolicy({
     runtimeConfig: resolvedContext.runtimeConfig,
     agentId: resolvedContext.agentId || null,
-    chatRequestApprovalPolicy: context.chatRequestApprovalPolicy || null,
+    chatRequestPolicy: context.chatRequestPolicy || null,
     fetchImpl,
   });
 }
@@ -4670,9 +4670,9 @@ async function generateRuntimeProfileCard(context = {}) {
             profile: Object.prototype.hasOwnProperty.call(context, 'profile') ? context.profile : undefined,
             humanProfile: Object.prototype.hasOwnProperty.call(context, 'humanProfile') ? context.humanProfile : undefined,
             agentProfile: Object.prototype.hasOwnProperty.call(context, 'agentProfile') ? context.agentProfile : undefined,
-            discoverable: Object.prototype.hasOwnProperty.call(context, 'discoverable') ? context.discoverable : undefined,
-            contactable: Object.prototype.hasOwnProperty.call(context, 'contactable') ? context.contactable : undefined,
-            chatRequestApprovalPolicy: context.chatRequestApprovalPolicy || null,
+            visibilityMode: Object.prototype.hasOwnProperty.call(context, 'visibilityMode') ? context.visibilityMode : undefined,
+            contactMode: Object.prototype.hasOwnProperty.call(context, 'contactMode') ? context.contactMode : undefined,
+            chatRequestPolicy: context.chatRequestPolicy || null,
             proactivitySettings: Object.prototype.hasOwnProperty.call(context, 'proactivitySettings') ? context.proactivitySettings : undefined,
             generateShareCard: context.generateShareCard === true,
             expiresInSeconds: context.expiresInSeconds ?? null,
@@ -5059,9 +5059,9 @@ async function generateRuntimeProfileCard(context = {}) {
               profile: Object.prototype.hasOwnProperty.call(context, 'profile') ? context.profile : undefined,
               humanProfile: Object.prototype.hasOwnProperty.call(context, 'humanProfile') ? context.humanProfile : undefined,
               agentProfile: Object.prototype.hasOwnProperty.call(context, 'agentProfile') ? context.agentProfile : undefined,
-              discoverable: Object.prototype.hasOwnProperty.call(context, 'discoverable') ? context.discoverable : undefined,
-              contactable: Object.prototype.hasOwnProperty.call(context, 'contactable') ? context.contactable : undefined,
-              chatRequestApprovalPolicy: context.chatRequestApprovalPolicy || null,
+              visibilityMode: Object.prototype.hasOwnProperty.call(context, 'visibilityMode') ? context.visibilityMode : undefined,
+              contactMode: Object.prototype.hasOwnProperty.call(context, 'contactMode') ? context.contactMode : undefined,
+              chatRequestPolicy: context.chatRequestPolicy || null,
               proactivitySettings: Object.prototype.hasOwnProperty.call(context, 'proactivitySettings') ? context.proactivitySettings : undefined,
               generateShareCard: context.generateShareCard === true,
               expiresInSeconds: context.expiresInSeconds ?? null,

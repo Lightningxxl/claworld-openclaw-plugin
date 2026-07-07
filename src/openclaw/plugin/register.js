@@ -236,9 +236,9 @@ function normalizeTerminalAccountAction(params = {}) {
     Object.prototype.hasOwnProperty.call(params, 'agentProfile')
     || Object.prototype.hasOwnProperty.call(params, 'profile')
   ) return 'update_agent_profile';
-  if (Object.prototype.hasOwnProperty.call(params, 'discoverable')) return 'set_discoverability';
-  if (Object.prototype.hasOwnProperty.call(params, 'contactable')) return 'set_contactability';
-  if (normalizeObject(params.chatRequestApprovalPolicy, null)) return 'set_chat_policy';
+  if (Object.prototype.hasOwnProperty.call(params, 'visibilityMode')) return 'set_visibility_mode';
+  if (Object.prototype.hasOwnProperty.call(params, 'contactMode')) return 'set_contact_mode';
+  if (normalizeObject(params.chatRequestPolicy, null)) return 'set_chat_request_policy';
   if (Object.prototype.hasOwnProperty.call(params, 'proactivitySettings')) return 'set_proactivity';
   return 'view_account';
 }
@@ -475,7 +475,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
         category: 'account',
         usageNotes: [
           'Use this human-facing account surface for identity verification, profile, policy, and subscription decisions.',
-          'Use action=view_account for readiness; update_display_name, update_agent_profile, or set_chat_policy for common account mutations.',
+          'Use action=view_account for readiness; update_display_name, update_agent_profile, or set_chat_request_policy for common account mutations.',
           'Use start_email_verification with email + optional displayName to start email-based identity verification, then complete_email_verification with email + code to finish.',
           'Use subscribe_person or unsubscribe_person when a search/profile result exposes a person subscription target.',
         ],
@@ -488,7 +488,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           action: stringParam({
             description: 'Account action.',
             enumValues: TERMINAL_ACCOUNT_ACTIONS,
-            examples: ['view_account', 'start_email_verification', 'update_display_name', 'set_chat_policy'],
+            examples: ['view_account', 'start_email_verification', 'update_display_name', 'set_chat_request_policy'],
           }),
           displayName: stringParam({
             description: 'Public-facing display name for update_display_name or start_email_verification.',
@@ -507,9 +507,17 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             description: 'Agent-facing profile/personality text for update_agent_profile.',
             examples: ['偏主动但会先确认边界，擅长总结和约局。'],
           }),
-          discoverable: booleanParam({ description: 'Whether this account can appear in global people search.' }),
-          contactable: booleanParam({ description: 'Whether this account can receive direct public-profile chat requests.' }),
-          chatRequestApprovalPolicy: objectParam({
+          visibilityMode: stringParam({
+            description: 'Account visibility mode: public is searchable, unlisted is explicit-identity reachable, private is not publicly reachable.',
+            enumValues: ['public', 'unlisted', 'private'],
+            examples: ['public', 'unlisted', 'private'],
+          }),
+          contactMode: stringParam({
+            description: 'Account contact mode controlling whether new inbound contact requests are accepted.',
+            enumValues: ['open', 'closed'],
+            examples: ['open', 'closed'],
+          }),
+          chatRequestPolicy: objectParam({
             description: 'Backend-managed inbound chat-request policy for this account.',
             additionalProperties: true,
           }),
@@ -641,9 +649,9 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           profile: params.profile,
           humanProfile: params.humanProfile,
           agentProfile: params.agentProfile,
-          discoverable: params.discoverable,
-          contactable: params.contactable,
-          chatRequestApprovalPolicy: params.chatRequestApprovalPolicy || null,
+          visibilityMode: params.visibilityMode,
+          contactMode: params.contactMode,
+          chatRequestPolicy: params.chatRequestPolicy || null,
           proactivitySettings: params.proactivitySettings,
           generateShareCard,
           shareCardVariant: params.shareCardVariant ?? null,
@@ -661,7 +669,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
         usageNotes: [
           'scope=worlds searches or browses visible worlds.',
           'scope=world_members searches members in an authorized world.',
-          'scope=people searches globally discoverable/contactable public identities.',
+          'scope=people searches globally public identities; unlisted people require explicit identity/profile lookup.',
           'scope=mixed combines world, optional world-member, and global people search results in one SearchItemEnvelope list.',
         ],
       }),
@@ -1200,7 +1208,7 @@ function buildRegisteredTools(api, plugin) {
     enumValues: ['en', 'zh'],
     examples: ['en', 'zh'],
   });
-  const chatRequestApprovalPolicyProperty = objectParam({
+  const chatRequestPolicyProperty = objectParam({
     description: 'Backend-managed inbound chat-request policy for this account.',
     required: ['mode'],
     properties: {
@@ -1929,8 +1937,8 @@ function buildRegisteredTools(api, plugin) {
             title: 'Update the inbound chat policy',
             input: {
               accountId: 'claworld',
-              action: 'update_chat_policy',
-              chatRequestApprovalPolicy: {
+              action: 'update_chat_request_policy',
+              chatRequestPolicy: {
                 mode: 'trusted_or_world',
                 blocks: {
                   originTypes: ['world_broadcast'],
@@ -1947,9 +1955,9 @@ function buildRegisteredTools(api, plugin) {
         properties: {
           accountId: accountIdProperty,
           action: stringParam({
-            description: 'Account action. Defaults to view; inferred from displayName, profile, or chatRequestApprovalPolicy when omitted.',
+            description: 'Account action. Defaults to view; inferred from displayName, profile, or chatRequestPolicy when omitted.',
             enumValues: ACCOUNT_ACTIONS,
-            examples: ['view', 'update_identity', 'update_profile', 'update_chat_policy'],
+            examples: ['view', 'update_identity', 'update_profile', 'update_chat_request_policy'],
           }),
           displayName: stringParam({
             description: 'Public-facing display name. Required for action=update_identity. # is reserved and must not appear here.',
@@ -1960,7 +1968,7 @@ function buildRegisteredTools(api, plugin) {
             description: 'Global plain-text profile for this account. Maximum 500 characters. Use an empty string to clear it. HTML is not supported.',
             examples: ['喜欢慢节奏介绍和小范围世界，也愿意先让 agent 帮我做初步认识。🙂'],
           }),
-          chatRequestApprovalPolicy: chatRequestApprovalPolicyProperty,
+          chatRequestPolicy: chatRequestPolicyProperty,
           generateShareCard: booleanParam({
             description: 'When true, return a temporary public identity card URL. Defaults to false for view and true for update_identity.',
           }),
@@ -1990,8 +1998,8 @@ function buildRegisteredTools(api, plugin) {
           },
           {
             accountId: 'claworld',
-            action: 'update_chat_policy',
-            chatRequestApprovalPolicy: {
+            action: 'update_chat_request_policy',
+            chatRequestPolicy: {
               mode: 'manual_review',
             },
           },
@@ -2040,18 +2048,18 @@ function buildRegisteredTools(api, plugin) {
           }));
         }
 
-        if (action === 'update_chat_policy') {
+        if (action === 'update_chat_request_policy') {
           const context = await resolveToolContext(api, plugin, params);
-          const chatRequestApprovalPolicy = normalizeObject(params.chatRequestApprovalPolicy, null);
-          if (!chatRequestApprovalPolicy) {
+          const chatRequestPolicy = normalizeObject(params.chatRequestPolicy, null);
+          if (!chatRequestPolicy) {
             requireManageWorldField(
-              'chatRequestApprovalPolicy',
-              'chatRequestApprovalPolicy is required for action=update_chat_policy',
+              'chatRequestPolicy',
+              'chatRequestPolicy is required for action=update_chat_request_policy',
             );
           }
           const payload = await plugin.runtime.productShell.profile.updateChatRequestApprovalPolicy({
             ...context,
-            chatRequestApprovalPolicy,
+            chatRequestPolicy,
           });
           return buildToolResult(projectToolAccountMutationResponse({
             action,
@@ -2094,8 +2102,8 @@ function buildRegisteredTools(api, plugin) {
                 normalizeText(runtimeConfig?.name, normalizeText(runtimeConfig?.registration?.displayName, null)),
               ),
             ),
-            discoverable: null,
-            contactable: null,
+            visibilityMode: null,
+            contactMode: null,
             online: null,
             resolved: null,
           }
