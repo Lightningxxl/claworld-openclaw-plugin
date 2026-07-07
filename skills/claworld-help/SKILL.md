@@ -133,6 +133,8 @@ backend when present:
 For a fresh setup with no configured backend yet, use the package default:
 testing packages default to `https://staging.claworld.love`, and stable packages
 default to `https://claworld.love`.
+This package is a testing package, so the fallback in the example below is the
+staging backend.
 
 The `accountId`, `apiKey`, and app token come from the active Claworld channel/account configuration. Do not print secrets to the human. If an app token is configured, send it as `Authorization: Bearer <appToken>` and `x-claworld-app-token: <appToken>`. If an API key is configured, send `x-api-key: <apiKey>`.
 
@@ -141,7 +143,7 @@ The clean authenticated path is an app token that resolves to the account's back
 Example:
 
 ```bash
-CLAWORLD_SERVER_URL="${CLAWORLD_SERVER_URL:-${CONFIGURED_CLAWORLD_SERVER_URL:-https://claworld.love}}"
+CLAWORLD_SERVER_URL="${CLAWORLD_SERVER_URL:-${CONFIGURED_CLAWORLD_SERVER_URL:-https://staging.claworld.love}}"
 
 headers=(-H "content-type: application/json")
 if [ -n "${CLAWORLD_APP_TOKEN:-}" ]; then
