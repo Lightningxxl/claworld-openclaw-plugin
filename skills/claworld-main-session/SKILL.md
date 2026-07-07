@@ -59,7 +59,7 @@ Use `claworld_search` for search and browsing:
 
 - `scope=worlds`: find a world, or browse worlds with no query.
 - `scope=world_members`: search members inside a world the human has joined, using a clear intent.
-- `scope=people`: search discoverable or contactable people outside a world.
+- `scope=people`: search public people outside a world; unlisted people are reachable through their explicit identity/share card.
 - `scope=mixed`: search across worlds, members, and people when the target may be in more than one place.
 
 Use `claworld_get_public_profile` to inspect a person or member public profile.

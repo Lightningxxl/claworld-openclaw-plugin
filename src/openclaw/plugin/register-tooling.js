@@ -496,7 +496,6 @@ export const ACCOUNT_ACTIONS = Object.freeze([
   'view',
   'update_identity',
   'update_profile',
-  'update_chat_policy',
 ]);
 
 function normalizeAccountAction(value, fallback = null) {
@@ -509,7 +508,6 @@ export function inferAccountAction(params = {}) {
   if (explicitAction) return explicitAction;
   if (normalizeText(params.displayName, null)) return 'update_identity';
   if (Object.prototype.hasOwnProperty.call(params, 'profile')) return 'update_profile';
-  if (normalizeObject(params.chatRequestApprovalPolicy, null)) return 'update_chat_policy';
   return 'view';
 }
 
@@ -629,31 +627,12 @@ function projectToolAccountProfileState(identityPayload = null) {
   };
 }
 
-function projectToolChatRequestApprovalPolicy(payload = null) {
-  const policy = normalizeObject(payload, null);
-  if (!policy) return null;
-  return {
-    agentId: normalizeText(policy.agentId, null),
-    schemaVersion: Number.isInteger(policy.schemaVersion) ? policy.schemaVersion : null,
-    syncedAt: normalizeText(policy.syncedAt, null),
-    credentialId: normalizeText(policy.credentialId, null),
-    source: normalizeObject(policy.source, {})
-      ? {
-          channel: normalizeText(policy.source?.channel, null),
-          integration: normalizeText(policy.source?.integration, null),
-          accountId: normalizeText(policy.source?.accountId, null),
-        }
-      : {},
-    policy: normalizeObject(policy.policy, {})
-      ? {
-          mode: normalizeText(policy.policy?.mode, null),
-          blocks: {
-            originTypes: Array.isArray(policy.policy?.blocks?.originTypes) ? policy.policy.blocks.originTypes : [],
-            worldIds: Array.isArray(policy.policy?.blocks?.worldIds) ? policy.policy.blocks.worldIds : [],
-          },
-        }
-      : null,
-  };
+function resolveToolPublicIdentityReady(identityPayload = null, publicIdentityState = {}) {
+  const diagnostics = normalizeObject(identityPayload?.diagnostics, null);
+  if (typeof diagnostics?.publicIdentityReady === 'boolean') return diagnostics.publicIdentityReady;
+  const identityStatus = normalizeText(publicIdentityState?.publicIdentity?.status, null);
+  if (identityStatus) return identityStatus === 'ready';
+  return identityPayload?.ready === true;
 }
 
 function projectToolPluginVersionStatus(payload = null) {
@@ -688,7 +667,7 @@ export function projectToolAccountViewResponse({
 } = {}) {
   const publicIdentityState = projectToolAccountIdentityFields(identityPayload);
   const accountProfile = projectToolAccountProfileState(identityPayload);
-  const publicIdentityReady = identityPayload?.ready === true;
+  const publicIdentityReady = resolveToolPublicIdentityReady(identityPayload, publicIdentityState);
   const accountProfileReady = accountProfile.ready === true;
   const emailVerified = pairingPayload?.emailVerified === true;
   const runtimePaired = pairingPayload?.status === 'paired';
@@ -774,8 +753,8 @@ export function projectToolAccountViewResponse({
         normalizeText(pairingPayload?.relayAgent?.agentId, null),
       ),
       displayName: normalizeText(pairingPayload?.relayAgent?.displayName, null),
-      discoverable: pairingPayload?.relayAgent?.discoverable ?? null,
-      contactable: pairingPayload?.relayAgent?.contactable ?? null,
+      visibilityMode: normalizeText(pairingPayload?.relayAgent?.visibilityMode, null),
+      contactPolicy: normalizeText(pairingPayload?.relayAgent?.contactPolicy, null),
       online: relayOnline,
       resolved: relayResolved,
       bindingStatus,
@@ -788,7 +767,6 @@ export function projectToolAccountViewResponse({
     nextTool: blockedAction.nextTool,
     missingFields: blockedAction.missingFields,
     pluginVersionStatus: projectToolPluginVersionStatus(identityPayload?.pluginVersionStatus),
-    chatRequestApprovalPolicy: projectToolChatRequestApprovalPolicy(identityPayload?.chatRequestApprovalPolicy),
     ...(resolvedShareCard !== undefined ? { shareCard: resolvedShareCard } : {}),
   };
 }
@@ -807,7 +785,7 @@ export function projectToolAccountMutationResponse({
     : (identityPayload && Object.prototype.hasOwnProperty.call(identityPayload, 'shareCard')
         ? projectToolShareCard(identityPayload.shareCard)
         : undefined);
-  const publicIdentityReady = identityPayload?.ready === true;
+  const publicIdentityReady = resolveToolPublicIdentityReady(identityPayload, publicIdentityState);
   const accountProfileReady = accountProfile.ready === true;
   const emailVerificationPayload = normalizeObject(identityPayload?.emailVerification, null);
   const emailVerified = identityPayload?.emailVerified === true
@@ -875,7 +853,6 @@ export function projectToolAccountMutationResponse({
     missingFields: blockedAction.missingFields,
     reason: blockedAction.reason,
     pluginVersionStatus: projectToolPluginVersionStatus(identityPayload?.pluginVersionStatus),
-    chatRequestApprovalPolicy: projectToolChatRequestApprovalPolicy(identityPayload?.chatRequestApprovalPolicy),
     ...(resolvedShareCard !== undefined ? { shareCard: resolvedShareCard } : {}),
     ...(runtimeIdentity ? { runtimeIdentity } : {}),
     ...(action === 'update_identity'
@@ -888,10 +865,6 @@ export function projectToolAccountMutationResponse({
         ? {
             updated: ['profile'],
           }
-        : action === 'update_chat_policy'
-          ? {
-              updated: ['chatRequestApprovalPolicy'],
-            }
           : {}),
   };
 }

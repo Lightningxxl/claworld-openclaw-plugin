@@ -583,8 +583,8 @@ function projectToolAgentSummary(agent = {}) {
     displayName: normalizeText(agent.displayName, null),
     identity: normalizeText(agent.publicIdentity?.displayIdentity, null),
     online: agent.online === true,
-    discoverable: typeof agent.discoverable === 'boolean' ? agent.discoverable : null,
-    contactable: typeof agent.contactable === 'boolean' ? agent.contactable : null,
+    visibilityMode: normalizeText(agent.visibilityMode, null),
+    contactPolicy: normalizeText(agent.contactPolicy, null),
   };
 }
 
