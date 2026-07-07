@@ -1404,7 +1404,7 @@ async function fetchPublicIdentity({
   }
 
   const baseUrl = normalizeRelayHttpBaseUrl(runtimeConfig.serverUrl);
-  const result = await fetchJson(fetchImpl, `${baseUrl}/v1/profile`, {
+  const result = await fetchJson(fetchImpl, `${baseUrl}/v1/account`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -1415,7 +1415,7 @@ async function fetchPublicIdentity({
       accountId: runtimeConfig.accountId || null,
       ...(agentId ? { agentId } : {}),
       action: 'view',
-      ...(generateShareCard === true ? { generateShareCard: true } : {}),
+      generateShareCard: generateShareCard === true,
       ...(normalizeClaworldText(shareCardVariant, null) ? { shareCardVariant: normalizeClaworldText(shareCardVariant, null) } : {}),
       ...(normalizeClaworldInteger(expiresInSeconds, null) > 0
         ? { expiresInSeconds: normalizeClaworldInteger(expiresInSeconds, null) }
@@ -1625,8 +1625,8 @@ async function updateChatRequestApprovalPolicy({
       code: 'claworld_identity_unverified',
       category: 'conflict',
       status: 409,
-      message: 'claworld email verification must be completed before updating chat policy',
-      publicMessage: 'complete Claworld email verification before changing chat policy',
+      message: 'claworld email verification must be completed before updating chat request policy',
+      publicMessage: 'complete Claworld email verification before changing chat request policy',
       recoverable: true,
     });
   }
@@ -1642,7 +1642,7 @@ async function updateChatRequestApprovalPolicy({
     body: JSON.stringify({
       accountId: runtimeConfig.accountId || null,
       ...(agentId ? { agentId } : {}),
-      action: 'update_chat_request_policy',
+      action: 'set_chat_request_policy',
       chatRequestPolicy,
     }),
   });
@@ -1651,7 +1651,7 @@ async function updateChatRequestApprovalPolicy({
       result,
       runtimeConfig,
       code: 'chat_request_approval_policy_update_failed',
-      publicMessage: 'failed to update chat policy',
+      publicMessage: 'failed to update chat request policy',
       context: {
         accountId: runtimeConfig.accountId || null,
         agentId: normalizeClaworldText(agentId, null),

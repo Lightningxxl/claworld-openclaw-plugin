@@ -25,10 +25,6 @@ import {
 } from '../runtime/working-memory.js';
 import { resolveOpenClawWorkspaceRoot } from '../runtime/workspace-resolver.js';
 import { setClaworldRuntime } from './runtime.js';
-import {
-  CHAT_REQUEST_APPROVAL_POLICY_MODES,
-  CHAT_REQUEST_APPROVAL_POLICY_ORIGIN_TYPES,
-} from '../../product-shell/contracts/chat-request-approval-policy.js';
 import { PUBLIC_TOOL_ACTION_CATALOG } from '../../product-shell/contracts/search-item.js';
 import {
   ACCOUNT_ACTIONS,
@@ -241,6 +237,56 @@ function normalizeTerminalAccountAction(params = {}) {
   if (normalizeObject(params.chatRequestPolicy, null)) return 'set_chat_request_policy';
   if (Object.prototype.hasOwnProperty.call(params, 'proactivitySettings')) return 'set_proactivity';
   return 'view_account';
+}
+
+function hasProvidedTerminalAccountPolicyField(params = {}, fieldId) {
+  if (!Object.prototype.hasOwnProperty.call(params, fieldId)) return false;
+  const value = params[fieldId];
+  if (value == null) return false;
+  if (typeof value === 'string') return normalizeText(value, null) != null;
+  return true;
+}
+
+function hasNonEmptyTerminalAccountPolicyObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0;
+}
+
+function validateTerminalAccountPolicyPayload(action, params = {}) {
+  if (action === 'set_visibility_mode') {
+    if (!normalizeText(params.visibilityMode, null)) {
+      requireManageWorldField('visibilityMode', 'visibilityMode is required for action=set_visibility_mode');
+    }
+    if (hasProvidedTerminalAccountPolicyField(params, 'contactMode')) {
+      requireManageWorldField('contactMode', 'contactMode is not supported for action=set_visibility_mode');
+    }
+    if (hasProvidedTerminalAccountPolicyField(params, 'chatRequestPolicy')) {
+      requireManageWorldField('chatRequestPolicy', 'chatRequestPolicy is not supported for action=set_visibility_mode');
+    }
+    return;
+  }
+  if (action === 'set_contact_mode') {
+    if (!normalizeText(params.contactMode, null)) {
+      requireManageWorldField('contactMode', 'contactMode is required for action=set_contact_mode');
+    }
+    if (hasProvidedTerminalAccountPolicyField(params, 'visibilityMode')) {
+      requireManageWorldField('visibilityMode', 'visibilityMode is not supported for action=set_contact_mode');
+    }
+    if (hasProvidedTerminalAccountPolicyField(params, 'chatRequestPolicy')) {
+      requireManageWorldField('chatRequestPolicy', 'chatRequestPolicy is not supported for action=set_contact_mode');
+    }
+    return;
+  }
+  if (action === 'set_chat_request_policy') {
+    if (!hasNonEmptyTerminalAccountPolicyObject(params.chatRequestPolicy)) {
+      requireManageWorldField('chatRequestPolicy', 'chatRequestPolicy is required for action=set_chat_request_policy');
+    }
+    if (hasProvidedTerminalAccountPolicyField(params, 'visibilityMode')) {
+      requireManageWorldField('visibilityMode', 'visibilityMode is not supported for action=set_chat_request_policy');
+    }
+    if (hasProvidedTerminalAccountPolicyField(params, 'contactMode')) {
+      requireManageWorldField('contactMode', 'contactMode is not supported for action=set_chat_request_policy');
+    }
+  }
 }
 
 function normalizeTerminalWorldAction(params = {}) {
@@ -470,7 +516,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
     {
       name: accountTool,
       label: 'Claworld Manage Account',
-      description: 'Terminal account surface for readiness, public identity, global profile, share-card generation, account-level chat policy, and email-based identity verification.',
+      description: 'Terminal account surface for readiness, public identity, global profile, share-card generation, account-level chat request policy, and email-based identity verification.',
       metadata: buildToolMetadata({
         category: 'account',
         usageNotes: [
@@ -562,6 +608,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
       }),
       async execute(toolCallId, params = {}) {
         const action = normalizeTerminalAccountAction(params);
+        validateTerminalAccountPolicyPayload(action, params);
         const subscriptionTargetId = normalizeText(params.targetAgentId, normalizeText(params.targetId, null));
         if (action === 'subscribe_person') {
           if (!subscriptionTargetId) requireManageWorldField('targetAgentId', 'targetAgentId is required for action=subscribe_person');
@@ -1207,43 +1254,6 @@ function buildRegisteredTools(api, plugin) {
     description: 'Optional share-card version. Choose from the user\'s usual communication language or sharing context: zh for Chinese, en for languages outside Chinese.',
     enumValues: ['en', 'zh'],
     examples: ['en', 'zh'],
-  });
-  const chatRequestPolicyProperty = objectParam({
-    description: 'Backend-managed inbound chat-request policy for this account.',
-    required: ['mode'],
-    properties: {
-      mode: stringParam({
-        description: 'Policy mode controlling which new inbound chat requests auto-accept.',
-        enumValues: CHAT_REQUEST_APPROVAL_POLICY_MODES,
-        examples: ['open', 'manual_review'],
-      }),
-      blocks: objectParam({
-        description: 'Optional deny rules applied before the allow mode is evaluated.',
-        properties: {
-          originTypes: arrayParam({
-            description: 'Canonical request origin types that should always be rejected.',
-            items: stringParam({
-              enumValues: CHAT_REQUEST_APPROVAL_POLICY_ORIGIN_TYPES,
-            }),
-            examples: [['world_broadcast']],
-          }),
-          worldIds: arrayParam({
-            description: 'World ids that should always be rejected.',
-            items: stringParam({}),
-            examples: [['dating-demo-world']],
-          }),
-        },
-      }),
-    },
-    examples: [
-      {
-        mode: 'trusted_or_world',
-        blocks: {
-          originTypes: ['world_broadcast'],
-          worldIds: [],
-        },
-      },
-    ],
   });
   const worldIdProperty = stringParam({
     description: 'Canonical world id returned by claworld_search(scope=worlds) or claworld_manage_worlds(action=get_world).',
@@ -1933,20 +1943,6 @@ function buildRegisteredTools(api, plugin) {
             },
             outcome: 'Stores the current account profile text. Pass an empty string to clear it.',
           },
-          {
-            title: 'Update the inbound chat policy',
-            input: {
-              accountId: 'claworld',
-              action: 'update_chat_request_policy',
-              chatRequestPolicy: {
-                mode: 'trusted_or_world',
-                blocks: {
-                  originTypes: ['world_broadcast'],
-                },
-              },
-            },
-            outcome: 'Stores the account-level chat-request policy in the backend and returns the updated policy snapshot.',
-          },
         ],
       }),
       parameters: objectParam({
@@ -1955,9 +1951,9 @@ function buildRegisteredTools(api, plugin) {
         properties: {
           accountId: accountIdProperty,
           action: stringParam({
-            description: 'Account action. Defaults to view; inferred from displayName, profile, or chatRequestPolicy when omitted.',
+            description: 'Account action. Defaults to view; inferred from displayName or profile when omitted.',
             enumValues: ACCOUNT_ACTIONS,
-            examples: ['view', 'update_identity', 'update_profile', 'update_chat_request_policy'],
+            examples: ['view', 'update_identity', 'update_profile'],
           }),
           displayName: stringParam({
             description: 'Public-facing display name. Required for action=update_identity. # is reserved and must not appear here.',
@@ -1968,7 +1964,6 @@ function buildRegisteredTools(api, plugin) {
             description: 'Global plain-text profile for this account. Maximum 500 characters. Use an empty string to clear it. HTML is not supported.',
             examples: ['喜欢慢节奏介绍和小范围世界，也愿意先让 agent 帮我做初步认识。🙂'],
           }),
-          chatRequestPolicy: chatRequestPolicyProperty,
           generateShareCard: booleanParam({
             description: 'When true, return a temporary public identity card URL. Defaults to false for view and true for update_identity.',
           }),
@@ -1995,13 +1990,6 @@ function buildRegisteredTools(api, plugin) {
             accountId: 'claworld',
             action: 'update_profile',
             profile: '喜欢慢节奏介绍和小范围世界，也愿意先让 agent 帮我做初步认识。🙂',
-          },
-          {
-            accountId: 'claworld',
-            action: 'update_chat_request_policy',
-            chatRequestPolicy: {
-              mode: 'manual_review',
-            },
           },
         ],
       }),
@@ -2040,26 +2028,6 @@ function buildRegisteredTools(api, plugin) {
           const payload = await plugin.runtime.productShell.profile.updateProfile({
             ...context,
             profile: params.profile == null ? '' : String(params.profile),
-          });
-          return buildToolResult(projectToolAccountMutationResponse({
-            action,
-            accountId: context.accountId,
-            identityPayload: payload,
-          }));
-        }
-
-        if (action === 'update_chat_request_policy') {
-          const context = await resolveToolContext(api, plugin, params);
-          const chatRequestPolicy = normalizeObject(params.chatRequestPolicy, null);
-          if (!chatRequestPolicy) {
-            requireManageWorldField(
-              'chatRequestPolicy',
-              'chatRequestPolicy is required for action=update_chat_request_policy',
-            );
-          }
-          const payload = await plugin.runtime.productShell.profile.updateChatRequestApprovalPolicy({
-            ...context,
-            chatRequestPolicy,
           });
           return buildToolResult(projectToolAccountMutationResponse({
             action,

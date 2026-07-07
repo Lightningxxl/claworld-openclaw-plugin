@@ -496,7 +496,6 @@ export const ACCOUNT_ACTIONS = Object.freeze([
   'view',
   'update_identity',
   'update_profile',
-  'update_chat_request_policy',
 ]);
 
 function normalizeAccountAction(value, fallback = null) {
@@ -509,7 +508,6 @@ export function inferAccountAction(params = {}) {
   if (explicitAction) return explicitAction;
   if (normalizeText(params.displayName, null)) return 'update_identity';
   if (Object.prototype.hasOwnProperty.call(params, 'profile')) return 'update_profile';
-  if (normalizeObject(params.chatRequestPolicy, null)) return 'update_chat_request_policy';
   return 'view';
 }
 
@@ -656,6 +654,14 @@ function projectToolChatRequestApprovalPolicy(payload = null) {
   };
 }
 
+function resolveToolPublicIdentityReady(identityPayload = null, publicIdentityState = {}) {
+  const diagnostics = normalizeObject(identityPayload?.diagnostics, null);
+  if (typeof diagnostics?.publicIdentityReady === 'boolean') return diagnostics.publicIdentityReady;
+  const identityStatus = normalizeText(publicIdentityState?.publicIdentity?.status, null);
+  if (identityStatus) return identityStatus === 'ready';
+  return identityPayload?.ready === true;
+}
+
 function projectToolPluginVersionStatus(payload = null) {
   const versionStatus = normalizeObject(payload, null);
   if (!versionStatus) return null;
@@ -688,7 +694,7 @@ export function projectToolAccountViewResponse({
 } = {}) {
   const publicIdentityState = projectToolAccountIdentityFields(identityPayload);
   const accountProfile = projectToolAccountProfileState(identityPayload);
-  const publicIdentityReady = identityPayload?.ready === true;
+  const publicIdentityReady = resolveToolPublicIdentityReady(identityPayload, publicIdentityState);
   const accountProfileReady = accountProfile.ready === true;
   const emailVerified = pairingPayload?.emailVerified === true;
   const runtimePaired = pairingPayload?.status === 'paired';
@@ -807,7 +813,7 @@ export function projectToolAccountMutationResponse({
     : (identityPayload && Object.prototype.hasOwnProperty.call(identityPayload, 'shareCard')
         ? projectToolShareCard(identityPayload.shareCard)
         : undefined);
-  const publicIdentityReady = identityPayload?.ready === true;
+  const publicIdentityReady = resolveToolPublicIdentityReady(identityPayload, publicIdentityState);
   const accountProfileReady = accountProfile.ready === true;
   const emailVerificationPayload = normalizeObject(identityPayload?.emailVerification, null);
   const emailVerified = identityPayload?.emailVerified === true
@@ -887,10 +893,6 @@ export function projectToolAccountMutationResponse({
       : action === 'update_profile'
         ? {
             updated: ['profile'],
-          }
-      : action === 'update_chat_request_policy'
-        ? {
-            updated: ['chatRequestPolicy'],
           }
           : {}),
   };

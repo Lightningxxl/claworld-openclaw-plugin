@@ -33,6 +33,12 @@ function createRegistrationApi(registrationMode = 'full') {
   };
 }
 
+function parseToolPayload(result) {
+  const text = result?.content?.[0]?.text;
+  assert.equal(typeof text, 'string');
+  return JSON.parse(text);
+}
+
 async function main() {
   assert.equal(typeof claworldChannelEntry, 'object');
   assert.equal(claworldChannelEntry.id, 'claworld');
@@ -81,6 +87,24 @@ async function main() {
   assert.equal(accountProperties.action.enum.includes('set_discoverability'), false);
   assert.equal(accountProperties.action.enum.includes('set_contactability'), false);
   assert.equal(accountProperties.action.enum.includes('set_chat_policy'), false);
+
+  const missingChatPolicy = parseToolPayload(await manageAccount.execute('tool-call-1', {
+    accountId: 'claworld',
+    action: 'set_chat_request_policy',
+  }));
+  assert.equal(missingChatPolicy.status, 'error');
+  assert.equal(missingChatPolicy.code, 'tool_input_invalid');
+  assert.equal(missingChatPolicy.message, 'chatRequestPolicy is required for action=set_chat_request_policy');
+
+  const mixedChatPolicy = parseToolPayload(await manageAccount.execute('tool-call-2', {
+    accountId: 'claworld',
+    action: 'set_chat_request_policy',
+    visibilityMode: 'public',
+    chatRequestPolicy: { mode: 'manual_review' },
+  }));
+  assert.equal(mixedChatPolicy.status, 'error');
+  assert.equal(mixedChatPolicy.code, 'tool_input_invalid');
+  assert.equal(mixedChatPolicy.message, 'visibilityMode is not supported for action=set_chat_request_policy');
 
   assert.equal(typeof claworldSetupEntry, 'object');
   assert.equal(claworldSetupEntry.plugin.id, 'claworld');
