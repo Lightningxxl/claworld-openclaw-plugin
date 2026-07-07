@@ -33,6 +33,12 @@ function createRegistrationApi(registrationMode = 'full') {
   };
 }
 
+function parseToolPayload(result) {
+  const text = result?.content?.[0]?.text;
+  assert.equal(typeof text, 'string');
+  return JSON.parse(text);
+}
+
 async function main() {
   assert.equal(typeof claworldChannelEntry, 'object');
   assert.equal(claworldChannelEntry.id, 'claworld');
@@ -66,6 +72,49 @@ async function main() {
       'claworld_search',
     ],
   );
+  const manageAccount = full.tools.find(({ tool }) => tool.name === 'claworld_manage_account')?.tool;
+  assert.ok(manageAccount, 'expected account management tool to register');
+  const accountProperties = manageAccount.parameters?.properties || {};
+  assert.ok(accountProperties.visibilityMode, 'expected visibilityMode account policy field');
+  assert.ok(accountProperties.contactPolicy, 'expected contactPolicy account policy field');
+  assert.deepEqual(accountProperties.contactPolicy.enum, ['open', 'approval_required', 'closed']);
+  assert.equal(Object.prototype.hasOwnProperty.call(accountProperties, 'discoverable'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(accountProperties, 'contactable'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(accountProperties, 'contactMode'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(accountProperties, 'chatRequestApprovalPolicy'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(accountProperties, 'chatRequestPolicy'), false);
+  assert.ok(accountProperties.action.enum.includes('set_visibility_mode'));
+  assert.ok(accountProperties.action.enum.includes('set_contact_policy'));
+  assert.equal(accountProperties.action.enum.includes('set_chat_request_policy'), false);
+  assert.equal(accountProperties.action.enum.includes('set_discoverability'), false);
+  assert.equal(accountProperties.action.enum.includes('set_contactability'), false);
+  assert.equal(accountProperties.action.enum.includes('set_chat_policy'), false);
+
+  const missingContactPolicy = parseToolPayload(await manageAccount.execute('tool-call-1', {
+    accountId: 'claworld',
+    action: 'set_contact_policy',
+  }));
+  assert.equal(missingContactPolicy.status, 'error');
+  assert.equal(missingContactPolicy.code, 'tool_input_invalid');
+  assert.equal(missingContactPolicy.message, 'contactPolicy is required for action=set_contact_policy');
+
+  const mixedContactPolicy = parseToolPayload(await manageAccount.execute('tool-call-2', {
+    accountId: 'claworld',
+    action: 'set_contact_policy',
+    visibilityMode: 'public',
+    contactPolicy: 'approval_required',
+  }));
+  assert.equal(mixedContactPolicy.status, 'error');
+  assert.equal(mixedContactPolicy.code, 'tool_input_invalid');
+  assert.equal(mixedContactPolicy.message, 'visibilityMode is not supported for action=set_contact_policy');
+
+  const legacyChatPolicy = parseToolPayload(await manageAccount.execute('tool-call-3', {
+    accountId: 'claworld',
+    action: 'set_chat_request_policy',
+    chatRequestPolicy: { mode: 'manual_review' },
+  }));
+  assert.equal(legacyChatPolicy.status, 'error');
+  assert.equal(legacyChatPolicy.code, 'tool_input_invalid');
 
   assert.equal(typeof claworldSetupEntry, 'object');
   assert.equal(claworldSetupEntry.plugin.id, 'claworld');

@@ -25,10 +25,6 @@ import {
 } from '../runtime/working-memory.js';
 import { resolveOpenClawWorkspaceRoot } from '../runtime/workspace-resolver.js';
 import { setClaworldRuntime } from './runtime.js';
-import {
-  CHAT_REQUEST_APPROVAL_POLICY_MODES,
-  CHAT_REQUEST_APPROVAL_POLICY_ORIGIN_TYPES,
-} from '../../product-shell/contracts/chat-request-approval-policy.js';
 import { PUBLIC_TOOL_ACTION_CATALOG } from '../../product-shell/contracts/search-item.js';
 import {
   ACCOUNT_ACTIONS,
@@ -236,11 +232,48 @@ function normalizeTerminalAccountAction(params = {}) {
     Object.prototype.hasOwnProperty.call(params, 'agentProfile')
     || Object.prototype.hasOwnProperty.call(params, 'profile')
   ) return 'update_agent_profile';
-  if (Object.prototype.hasOwnProperty.call(params, 'discoverable')) return 'set_discoverability';
-  if (Object.prototype.hasOwnProperty.call(params, 'contactable')) return 'set_contactability';
-  if (normalizeObject(params.chatRequestApprovalPolicy, null)) return 'set_chat_policy';
+  if (Object.prototype.hasOwnProperty.call(params, 'visibilityMode')) return 'set_visibility_mode';
+  if (Object.prototype.hasOwnProperty.call(params, 'contactPolicy')) return 'set_contact_policy';
+  if (Object.prototype.hasOwnProperty.call(params, 'chatRequestPolicy')) {
+    requireManageWorldField('chatRequestPolicy', 'chatRequestPolicy is not supported by claworld_manage_account; use contactPolicy');
+  }
   if (Object.prototype.hasOwnProperty.call(params, 'proactivitySettings')) return 'set_proactivity';
   return 'view_account';
+}
+
+function hasProvidedTerminalAccountPolicyField(params = {}, fieldId) {
+  if (!Object.prototype.hasOwnProperty.call(params, fieldId)) return false;
+  const value = params[fieldId];
+  if (value == null) return false;
+  if (typeof value === 'string') return normalizeText(value, null) != null;
+  return true;
+}
+
+function validateTerminalAccountPolicyPayload(action, params = {}) {
+  if (action === 'set_visibility_mode') {
+    if (!normalizeText(params.visibilityMode, null)) {
+      requireManageWorldField('visibilityMode', 'visibilityMode is required for action=set_visibility_mode');
+    }
+    if (hasProvidedTerminalAccountPolicyField(params, 'contactPolicy')) {
+      requireManageWorldField('contactPolicy', 'contactPolicy is not supported for action=set_visibility_mode');
+    }
+    if (hasProvidedTerminalAccountPolicyField(params, 'chatRequestPolicy')) {
+      requireManageWorldField('chatRequestPolicy', 'chatRequestPolicy is not supported by claworld_manage_account; use contactPolicy');
+    }
+    return;
+  }
+  if (action === 'set_contact_policy') {
+    if (!normalizeText(params.contactPolicy, null)) {
+      requireManageWorldField('contactPolicy', 'contactPolicy is required for action=set_contact_policy');
+    }
+    if (hasProvidedTerminalAccountPolicyField(params, 'visibilityMode')) {
+      requireManageWorldField('visibilityMode', 'visibilityMode is not supported for action=set_contact_policy');
+    }
+    if (hasProvidedTerminalAccountPolicyField(params, 'chatRequestPolicy')) {
+      requireManageWorldField('chatRequestPolicy', 'chatRequestPolicy is not supported by claworld_manage_account; use contactPolicy');
+    }
+    return;
+  }
 }
 
 function normalizeTerminalWorldAction(params = {}) {
@@ -470,12 +503,12 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
     {
       name: accountTool,
       label: 'Claworld Manage Account',
-      description: 'Terminal account surface for readiness, public identity, global profile, share-card generation, account-level chat policy, and email-based identity verification.',
+      description: 'Terminal account surface for readiness, public identity, global profile, share-card generation, visibility, inbound contact policy, and email-based identity verification.',
       metadata: buildToolMetadata({
         category: 'account',
         usageNotes: [
           'Use this human-facing account surface for identity verification, profile, policy, and subscription decisions.',
-          'Use action=view_account for readiness; update_display_name, update_agent_profile, or set_chat_policy for common account mutations.',
+          'Use action=view_account for readiness; update_display_name, update_agent_profile, or set_contact_policy for common account mutations.',
           'Use start_email_verification with email + optional displayName to start email-based identity verification, then complete_email_verification with email + code to finish.',
           'Use subscribe_person or unsubscribe_person when a search/profile result exposes a person subscription target.',
         ],
@@ -488,7 +521,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           action: stringParam({
             description: 'Account action.',
             enumValues: TERMINAL_ACCOUNT_ACTIONS,
-            examples: ['view_account', 'start_email_verification', 'update_display_name', 'set_chat_policy'],
+            examples: ['view_account', 'start_email_verification', 'update_display_name', 'set_contact_policy'],
           }),
           displayName: stringParam({
             description: 'Public-facing display name for update_display_name or start_email_verification.',
@@ -507,11 +540,15 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             description: 'Agent-facing profile/personality text for update_agent_profile.',
             examples: ['偏主动但会先确认边界，擅长总结和约局。'],
           }),
-          discoverable: booleanParam({ description: 'Whether this account can appear in global people search.' }),
-          contactable: booleanParam({ description: 'Whether this account can receive direct public-profile chat requests.' }),
-          chatRequestApprovalPolicy: objectParam({
-            description: 'Backend-managed inbound chat-request policy for this account.',
-            additionalProperties: true,
+          visibilityMode: stringParam({
+            description: 'Account visibility mode: public is searchable, unlisted is explicit-identity reachable, private is not publicly reachable.',
+            enumValues: ['public', 'unlisted', 'private'],
+            examples: ['public', 'unlisted', 'private'],
+          }),
+          contactPolicy: stringParam({
+            description: 'Inbound contact policy: open accepts eligible requests, approval_required keeps the request path open but requires review, closed blocks new inbound contact.',
+            enumValues: ['open', 'approval_required', 'closed'],
+            examples: ['open', 'approval_required', 'closed'],
           }),
           proactivitySettings: objectParam({
             description: 'Account-level proactive-management settings.',
@@ -554,6 +591,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
       }),
       async execute(toolCallId, params = {}) {
         const action = normalizeTerminalAccountAction(params);
+        validateTerminalAccountPolicyPayload(action, params);
         const subscriptionTargetId = normalizeText(params.targetAgentId, normalizeText(params.targetId, null));
         if (action === 'subscribe_person') {
           if (!subscriptionTargetId) requireManageWorldField('targetAgentId', 'targetAgentId is required for action=subscribe_person');
@@ -641,9 +679,8 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           profile: params.profile,
           humanProfile: params.humanProfile,
           agentProfile: params.agentProfile,
-          discoverable: params.discoverable,
-          contactable: params.contactable,
-          chatRequestApprovalPolicy: params.chatRequestApprovalPolicy || null,
+          visibilityMode: params.visibilityMode,
+          contactPolicy: params.contactPolicy,
           proactivitySettings: params.proactivitySettings,
           generateShareCard,
           shareCardVariant: params.shareCardVariant ?? null,
@@ -661,7 +698,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
         usageNotes: [
           'scope=worlds searches or browses visible worlds.',
           'scope=world_members searches members in an authorized world.',
-          'scope=people searches globally discoverable/contactable public identities.',
+          'scope=people searches globally public identities; unlisted people require explicit identity/profile lookup.',
           'scope=mixed combines world, optional world-member, and global people search results in one SearchItemEnvelope list.',
         ],
       }),
@@ -1199,43 +1236,6 @@ function buildRegisteredTools(api, plugin) {
     description: 'Optional share-card version. Choose from the user\'s usual communication language or sharing context: zh for Chinese, en for languages outside Chinese.',
     enumValues: ['en', 'zh'],
     examples: ['en', 'zh'],
-  });
-  const chatRequestApprovalPolicyProperty = objectParam({
-    description: 'Backend-managed inbound chat-request policy for this account.',
-    required: ['mode'],
-    properties: {
-      mode: stringParam({
-        description: 'Policy mode controlling which new inbound chat requests auto-accept.',
-        enumValues: CHAT_REQUEST_APPROVAL_POLICY_MODES,
-        examples: ['open', 'manual_review'],
-      }),
-      blocks: objectParam({
-        description: 'Optional deny rules applied before the allow mode is evaluated.',
-        properties: {
-          originTypes: arrayParam({
-            description: 'Canonical request origin types that should always be rejected.',
-            items: stringParam({
-              enumValues: CHAT_REQUEST_APPROVAL_POLICY_ORIGIN_TYPES,
-            }),
-            examples: [['world_broadcast']],
-          }),
-          worldIds: arrayParam({
-            description: 'World ids that should always be rejected.',
-            items: stringParam({}),
-            examples: [['dating-demo-world']],
-          }),
-        },
-      }),
-    },
-    examples: [
-      {
-        mode: 'trusted_or_world',
-        blocks: {
-          originTypes: ['world_broadcast'],
-          worldIds: [],
-        },
-      },
-    ],
   });
   const worldIdProperty = stringParam({
     description: 'Canonical world id returned by claworld_search(scope=worlds) or claworld_manage_worlds(action=get_world).',
@@ -1925,20 +1925,6 @@ function buildRegisteredTools(api, plugin) {
             },
             outcome: 'Stores the current account profile text. Pass an empty string to clear it.',
           },
-          {
-            title: 'Update the inbound chat policy',
-            input: {
-              accountId: 'claworld',
-              action: 'update_chat_policy',
-              chatRequestApprovalPolicy: {
-                mode: 'trusted_or_world',
-                blocks: {
-                  originTypes: ['world_broadcast'],
-                },
-              },
-            },
-            outcome: 'Stores the account-level chat-request policy in the backend and returns the updated policy snapshot.',
-          },
         ],
       }),
       parameters: objectParam({
@@ -1947,9 +1933,9 @@ function buildRegisteredTools(api, plugin) {
         properties: {
           accountId: accountIdProperty,
           action: stringParam({
-            description: 'Account action. Defaults to view; inferred from displayName, profile, or chatRequestApprovalPolicy when omitted.',
+            description: 'Account action. Defaults to view; inferred from displayName or profile when omitted.',
             enumValues: ACCOUNT_ACTIONS,
-            examples: ['view', 'update_identity', 'update_profile', 'update_chat_policy'],
+            examples: ['view', 'update_identity', 'update_profile'],
           }),
           displayName: stringParam({
             description: 'Public-facing display name. Required for action=update_identity. # is reserved and must not appear here.',
@@ -1960,7 +1946,6 @@ function buildRegisteredTools(api, plugin) {
             description: 'Global plain-text profile for this account. Maximum 500 characters. Use an empty string to clear it. HTML is not supported.',
             examples: ['喜欢慢节奏介绍和小范围世界，也愿意先让 agent 帮我做初步认识。🙂'],
           }),
-          chatRequestApprovalPolicy: chatRequestApprovalPolicyProperty,
           generateShareCard: booleanParam({
             description: 'When true, return a temporary public identity card URL. Defaults to false for view and true for update_identity.',
           }),
@@ -1987,13 +1972,6 @@ function buildRegisteredTools(api, plugin) {
             accountId: 'claworld',
             action: 'update_profile',
             profile: '喜欢慢节奏介绍和小范围世界，也愿意先让 agent 帮我做初步认识。🙂',
-          },
-          {
-            accountId: 'claworld',
-            action: 'update_chat_policy',
-            chatRequestApprovalPolicy: {
-              mode: 'manual_review',
-            },
           },
         ],
       }),
@@ -2040,26 +2018,6 @@ function buildRegisteredTools(api, plugin) {
           }));
         }
 
-        if (action === 'update_chat_policy') {
-          const context = await resolveToolContext(api, plugin, params);
-          const chatRequestApprovalPolicy = normalizeObject(params.chatRequestApprovalPolicy, null);
-          if (!chatRequestApprovalPolicy) {
-            requireManageWorldField(
-              'chatRequestApprovalPolicy',
-              'chatRequestApprovalPolicy is required for action=update_chat_policy',
-            );
-          }
-          const payload = await plugin.runtime.productShell.profile.updateChatRequestApprovalPolicy({
-            ...context,
-            chatRequestApprovalPolicy,
-          });
-          return buildToolResult(projectToolAccountMutationResponse({
-            action,
-            accountId: context.accountId,
-            identityPayload: payload,
-          }));
-        }
-
         const context = await resolveToolContext(api, plugin, params);
         const cfg = context.cfg || await loadCurrentConfig(api);
         const accountId = context.accountId;
@@ -2094,8 +2052,8 @@ function buildRegisteredTools(api, plugin) {
                 normalizeText(runtimeConfig?.name, normalizeText(runtimeConfig?.registration?.displayName, null)),
               ),
             ),
-            discoverable: null,
-            contactable: null,
+            visibilityMode: null,
+            contactPolicy: null,
             online: null,
             resolved: null,
           }

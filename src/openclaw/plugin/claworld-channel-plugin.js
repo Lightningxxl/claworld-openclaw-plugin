@@ -247,8 +247,8 @@ function buildRelayAgentSummary(item = {}) {
     agentId: normalizedAgentId,
     displayName: normalizeClaworldText(item?.displayName, null),
     publicIdentity: item?.publicIdentity && typeof item.publicIdentity === 'object' ? item.publicIdentity : null,
-    discoverable: typeof item?.discoverable === 'boolean' ? item.discoverable : null,
-    contactable: typeof item?.contactable === 'boolean' ? item.contactable : null,
+    visibilityMode: normalizeClaworldText(item?.visibilityMode, null),
+    contactPolicy: normalizeClaworldText(item?.contactPolicy, null),
     online: typeof item?.online === 'boolean' ? item.online : null,
   };
 }
@@ -1404,7 +1404,7 @@ async function fetchPublicIdentity({
   }
 
   const baseUrl = normalizeRelayHttpBaseUrl(runtimeConfig.serverUrl);
-  const result = await fetchJson(fetchImpl, `${baseUrl}/v1/profile`, {
+  const result = await fetchJson(fetchImpl, `${baseUrl}/v1/account`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -1415,7 +1415,7 @@ async function fetchPublicIdentity({
       accountId: runtimeConfig.accountId || null,
       ...(agentId ? { agentId } : {}),
       action: 'view',
-      ...(generateShareCard === true ? { generateShareCard: true } : {}),
+      generateShareCard: generateShareCard === true,
       ...(normalizeClaworldText(shareCardVariant, null) ? { shareCardVariant: normalizeClaworldText(shareCardVariant, null) } : {}),
       ...(normalizeClaworldInteger(expiresInSeconds, null) > 0
         ? { expiresInSeconds: normalizeClaworldInteger(expiresInSeconds, null) }
@@ -1614,53 +1614,6 @@ async function completeEmailVerification({
   return result.body || {};
 }
 
-async function updateChatRequestApprovalPolicy({
-  runtimeConfig,
-  agentId = null,
-  chatRequestApprovalPolicy = null,
-  fetchImpl,
-}) {
-  if (!resolveRuntimeAppToken(runtimeConfig)) {
-    throw createRuntimeBoundaryError({
-      code: 'claworld_identity_unverified',
-      category: 'conflict',
-      status: 409,
-      message: 'claworld email verification must be completed before updating chat policy',
-      publicMessage: 'complete Claworld email verification before changing chat policy',
-      recoverable: true,
-    });
-  }
-
-  const baseUrl = normalizeRelayHttpBaseUrl(runtimeConfig.serverUrl);
-  const result = await fetchJson(fetchImpl, `${baseUrl}/v1/profile`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...(runtimeConfig.apiKey ? { 'x-api-key': runtimeConfig.apiKey } : {}),
-      ...buildRuntimeAuthHeaders(runtimeConfig),
-    },
-    body: JSON.stringify({
-      accountId: runtimeConfig.accountId || null,
-      ...(agentId ? { agentId } : {}),
-      action: 'update_chat_policy',
-      chatRequestApprovalPolicy,
-    }),
-  });
-  if (!result.ok) {
-    createRelayRouteError({
-      result,
-      runtimeConfig,
-      code: 'chat_request_approval_policy_update_failed',
-      publicMessage: 'failed to update chat policy',
-      context: {
-        accountId: runtimeConfig.accountId || null,
-        agentId: normalizeClaworldText(agentId, null),
-      },
-    });
-  }
-  return result.body || {};
-}
-
 async function updateGlobalProfile({
   runtimeConfig,
   agentId = null,
@@ -1763,8 +1716,8 @@ async function resolveRelayAgentSummary({
     agentId: normalizedAgentId,
     displayName: normalizeClaworldText(runtimeConfig.registration?.displayName, null),
     publicIdentity: null,
-    discoverable: null,
-    contactable: null,
+    visibilityMode: null,
+    contactPolicy: null,
     online: null,
     resolved: false,
     resolutionSource: 'fallback',
@@ -1812,9 +1765,8 @@ async function executeRuntimeAccountAction({
   profile = undefined,
   humanProfile = undefined,
   agentProfile = undefined,
-  discoverable = undefined,
-  contactable = undefined,
-  chatRequestApprovalPolicy = null,
+  visibilityMode = undefined,
+  contactPolicy = undefined,
   proactivitySettings = undefined,
   generateShareCard = false,
   expiresInSeconds = null,
@@ -1848,9 +1800,8 @@ async function executeRuntimeAccountAction({
       ...(profile !== undefined ? { profile } : {}),
       ...(humanProfile !== undefined ? { humanProfile } : {}),
       ...(agentProfile !== undefined ? { agentProfile } : {}),
-      ...(discoverable !== undefined ? { discoverable } : {}),
-      ...(contactable !== undefined ? { contactable } : {}),
-      ...(chatRequestApprovalPolicy ? { chatRequestApprovalPolicy } : {}),
+      ...(visibilityMode !== undefined ? { visibilityMode } : {}),
+      ...(contactPolicy !== undefined ? { contactPolicy } : {}),
       ...(proactivitySettings !== undefined ? { proactivitySettings } : {}),
       ...(generateShareCard === true ? { generateShareCard: true } : {}),
       ...(normalizeClaworldText(shareCardVariant, null) ? { shareCardVariant: normalizeClaworldText(shareCardVariant, null) } : {}),
@@ -4377,16 +4328,6 @@ async function getRuntimeIdentityStatus(context = {}) {
   };
 }
 
-async function updateRuntimeChatRequestApprovalPolicy(context = {}) {
-  const resolvedContext = await resolveBoundRuntimeContext(context);
-  return updateChatRequestApprovalPolicy({
-    runtimeConfig: resolvedContext.runtimeConfig,
-    agentId: resolvedContext.agentId || null,
-    chatRequestApprovalPolicy: context.chatRequestApprovalPolicy || null,
-    fetchImpl,
-  });
-}
-
 async function updateRuntimeProfile(context = {}) {
   const resolvedContext = await resolveBoundRuntimeContext(context);
   return updateGlobalProfile({
@@ -4677,9 +4618,8 @@ async function generateRuntimeProfileCard(context = {}) {
             profile: Object.prototype.hasOwnProperty.call(context, 'profile') ? context.profile : undefined,
             humanProfile: Object.prototype.hasOwnProperty.call(context, 'humanProfile') ? context.humanProfile : undefined,
             agentProfile: Object.prototype.hasOwnProperty.call(context, 'agentProfile') ? context.agentProfile : undefined,
-            discoverable: Object.prototype.hasOwnProperty.call(context, 'discoverable') ? context.discoverable : undefined,
-            contactable: Object.prototype.hasOwnProperty.call(context, 'contactable') ? context.contactable : undefined,
-            chatRequestApprovalPolicy: context.chatRequestApprovalPolicy || null,
+            visibilityMode: Object.prototype.hasOwnProperty.call(context, 'visibilityMode') ? context.visibilityMode : undefined,
+            contactPolicy: Object.prototype.hasOwnProperty.call(context, 'contactPolicy') ? context.contactPolicy : undefined,
             proactivitySettings: Object.prototype.hasOwnProperty.call(context, 'proactivitySettings') ? context.proactivitySettings : undefined,
             generateShareCard: context.generateShareCard === true,
             expiresInSeconds: context.expiresInSeconds ?? null,
@@ -4689,7 +4629,6 @@ async function generateRuntimeProfileCard(context = {}) {
         },
         updatePublicIdentity: updateRuntimePublicIdentity,
         updateProfile: updateRuntimeProfile,
-        updateChatRequestApprovalPolicy: updateRuntimeChatRequestApprovalPolicy,
         generateShareCard: generateRuntimeProfileCard,
       },
       identity: {
@@ -5066,9 +5005,8 @@ async function generateRuntimeProfileCard(context = {}) {
               profile: Object.prototype.hasOwnProperty.call(context, 'profile') ? context.profile : undefined,
               humanProfile: Object.prototype.hasOwnProperty.call(context, 'humanProfile') ? context.humanProfile : undefined,
               agentProfile: Object.prototype.hasOwnProperty.call(context, 'agentProfile') ? context.agentProfile : undefined,
-              discoverable: Object.prototype.hasOwnProperty.call(context, 'discoverable') ? context.discoverable : undefined,
-              contactable: Object.prototype.hasOwnProperty.call(context, 'contactable') ? context.contactable : undefined,
-              chatRequestApprovalPolicy: context.chatRequestApprovalPolicy || null,
+              visibilityMode: Object.prototype.hasOwnProperty.call(context, 'visibilityMode') ? context.visibilityMode : undefined,
+              contactPolicy: Object.prototype.hasOwnProperty.call(context, 'contactPolicy') ? context.contactPolicy : undefined,
               proactivitySettings: Object.prototype.hasOwnProperty.call(context, 'proactivitySettings') ? context.proactivitySettings : undefined,
               generateShareCard: context.generateShareCard === true,
               expiresInSeconds: context.expiresInSeconds ?? null,
@@ -5078,7 +5016,6 @@ async function generateRuntimeProfileCard(context = {}) {
           },
           updatePublicIdentity: updateRuntimePublicIdentity,
           updateProfile: updateRuntimeProfile,
-          updateChatRequestApprovalPolicy: updateRuntimeChatRequestApprovalPolicy,
           generateShareCard: generateRuntimeProfileCard,
         },
         identity: {
