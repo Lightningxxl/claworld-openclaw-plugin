@@ -4318,6 +4318,13 @@ async function getRuntimeIdentityStatus(context = {}) {
     email: normalizeClaworldText(account.email, null),
     verifiedAt: normalizeClaworldText(account.verifiedAt, null),
     reason: emailVerified ? null : 'no_email_identity',
+    relay: accountView?.relay && typeof accountView.relay === 'object' && !Array.isArray(accountView.relay)
+      ? accountView.relay
+      : null,
+    diagnostics: accountView?.diagnostics && typeof accountView.diagnostics === 'object' && !Array.isArray(accountView.diagnostics)
+      ? accountView.diagnostics
+      : null,
+    accountView,
   };
 }
 

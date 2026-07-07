@@ -2071,7 +2071,13 @@ function buildRegisteredTools(api, plugin) {
             agentId: pairedAgentId,
           })
           : null;
-        const emailVerified = identityStatus?.emailVerified === true;
+        const accountPayload = normalizeObject(identityStatus?.accountView, null)
+          || (normalizeObject(identityStatus?.relay, null) ? identityStatus : null);
+        const accountViewAccount = normalizeObject(accountPayload?.account, null);
+        const accountViewDiagnostics = normalizeObject(accountPayload?.diagnostics, null);
+        const emailVerified = identityStatus?.emailVerified === true
+          || accountViewAccount?.emailVerified === true
+          || accountViewDiagnostics?.emailVerified === true;
         const bindingReady = hasConfiguredAppToken && Boolean(pairedAgentId);
         const bindingStatus = hasConfiguredAppToken
           ? (bindingReady ? 'bound' : 'identity_unresolved')
@@ -2098,8 +2104,8 @@ function buildRegisteredTools(api, plugin) {
           bindingReady,
           bindingStatus,
           emailVerified,
-          email: identityStatus?.email || null,
-          verifiedAt: identityStatus?.verifiedAt || null,
+          email: identityStatus?.email || accountViewAccount?.email || null,
+          verifiedAt: identityStatus?.verifiedAt || accountViewAccount?.verifiedAt || null,
           reason: hasConfiguredAppToken
             ? (pairedAgentId ? null : 'missing_agent_id')
             : 'missing_app_token',
@@ -2113,6 +2119,7 @@ function buildRegisteredTools(api, plugin) {
           accountId,
           pairingPayload,
           identityPayload,
+          accountPayload,
         }));
       },
     },
