@@ -233,8 +233,10 @@ function normalizeTerminalAccountAction(params = {}) {
     || Object.prototype.hasOwnProperty.call(params, 'profile')
   ) return 'update_agent_profile';
   if (Object.prototype.hasOwnProperty.call(params, 'visibilityMode')) return 'set_visibility_mode';
-  if (Object.prototype.hasOwnProperty.call(params, 'contactMode')) return 'set_contact_mode';
-  if (normalizeObject(params.chatRequestPolicy, null)) return 'set_chat_request_policy';
+  if (Object.prototype.hasOwnProperty.call(params, 'contactPolicy')) return 'set_contact_policy';
+  if (Object.prototype.hasOwnProperty.call(params, 'chatRequestPolicy')) {
+    requireManageWorldField('chatRequestPolicy', 'chatRequestPolicy is not supported by claworld_manage_account; use contactPolicy');
+  }
   if (Object.prototype.hasOwnProperty.call(params, 'proactivitySettings')) return 'set_proactivity';
   return 'view_account';
 }
@@ -247,45 +249,30 @@ function hasProvidedTerminalAccountPolicyField(params = {}, fieldId) {
   return true;
 }
 
-function hasNonEmptyTerminalAccountPolicyObject(value) {
-  return value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0;
-}
-
 function validateTerminalAccountPolicyPayload(action, params = {}) {
   if (action === 'set_visibility_mode') {
     if (!normalizeText(params.visibilityMode, null)) {
       requireManageWorldField('visibilityMode', 'visibilityMode is required for action=set_visibility_mode');
     }
-    if (hasProvidedTerminalAccountPolicyField(params, 'contactMode')) {
-      requireManageWorldField('contactMode', 'contactMode is not supported for action=set_visibility_mode');
+    if (hasProvidedTerminalAccountPolicyField(params, 'contactPolicy')) {
+      requireManageWorldField('contactPolicy', 'contactPolicy is not supported for action=set_visibility_mode');
     }
     if (hasProvidedTerminalAccountPolicyField(params, 'chatRequestPolicy')) {
-      requireManageWorldField('chatRequestPolicy', 'chatRequestPolicy is not supported for action=set_visibility_mode');
+      requireManageWorldField('chatRequestPolicy', 'chatRequestPolicy is not supported by claworld_manage_account; use contactPolicy');
     }
     return;
   }
-  if (action === 'set_contact_mode') {
-    if (!normalizeText(params.contactMode, null)) {
-      requireManageWorldField('contactMode', 'contactMode is required for action=set_contact_mode');
+  if (action === 'set_contact_policy') {
+    if (!normalizeText(params.contactPolicy, null)) {
+      requireManageWorldField('contactPolicy', 'contactPolicy is required for action=set_contact_policy');
     }
     if (hasProvidedTerminalAccountPolicyField(params, 'visibilityMode')) {
-      requireManageWorldField('visibilityMode', 'visibilityMode is not supported for action=set_contact_mode');
+      requireManageWorldField('visibilityMode', 'visibilityMode is not supported for action=set_contact_policy');
     }
     if (hasProvidedTerminalAccountPolicyField(params, 'chatRequestPolicy')) {
-      requireManageWorldField('chatRequestPolicy', 'chatRequestPolicy is not supported for action=set_contact_mode');
+      requireManageWorldField('chatRequestPolicy', 'chatRequestPolicy is not supported by claworld_manage_account; use contactPolicy');
     }
     return;
-  }
-  if (action === 'set_chat_request_policy') {
-    if (!hasNonEmptyTerminalAccountPolicyObject(params.chatRequestPolicy)) {
-      requireManageWorldField('chatRequestPolicy', 'chatRequestPolicy is required for action=set_chat_request_policy');
-    }
-    if (hasProvidedTerminalAccountPolicyField(params, 'visibilityMode')) {
-      requireManageWorldField('visibilityMode', 'visibilityMode is not supported for action=set_chat_request_policy');
-    }
-    if (hasProvidedTerminalAccountPolicyField(params, 'contactMode')) {
-      requireManageWorldField('contactMode', 'contactMode is not supported for action=set_chat_request_policy');
-    }
   }
 }
 
@@ -516,12 +503,12 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
     {
       name: accountTool,
       label: 'Claworld Manage Account',
-      description: 'Terminal account surface for readiness, public identity, global profile, share-card generation, account-level chat request policy, and email-based identity verification.',
+      description: 'Terminal account surface for readiness, public identity, global profile, share-card generation, visibility, inbound contact policy, and email-based identity verification.',
       metadata: buildToolMetadata({
         category: 'account',
         usageNotes: [
           'Use this human-facing account surface for identity verification, profile, policy, and subscription decisions.',
-          'Use action=view_account for readiness; update_display_name, update_agent_profile, or set_chat_request_policy for common account mutations.',
+          'Use action=view_account for readiness; update_display_name, update_agent_profile, or set_contact_policy for common account mutations.',
           'Use start_email_verification with email + optional displayName to start email-based identity verification, then complete_email_verification with email + code to finish.',
           'Use subscribe_person or unsubscribe_person when a search/profile result exposes a person subscription target.',
         ],
@@ -534,7 +521,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           action: stringParam({
             description: 'Account action.',
             enumValues: TERMINAL_ACCOUNT_ACTIONS,
-            examples: ['view_account', 'start_email_verification', 'update_display_name', 'set_chat_request_policy'],
+            examples: ['view_account', 'start_email_verification', 'update_display_name', 'set_contact_policy'],
           }),
           displayName: stringParam({
             description: 'Public-facing display name for update_display_name or start_email_verification.',
@@ -558,14 +545,10 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             enumValues: ['public', 'unlisted', 'private'],
             examples: ['public', 'unlisted', 'private'],
           }),
-          contactMode: stringParam({
-            description: 'Account contact mode controlling whether new inbound contact requests are accepted.',
-            enumValues: ['open', 'closed'],
-            examples: ['open', 'closed'],
-          }),
-          chatRequestPolicy: objectParam({
-            description: 'Backend-managed inbound chat-request policy for this account.',
-            additionalProperties: true,
+          contactPolicy: stringParam({
+            description: 'Inbound contact policy: open accepts eligible requests, approval_required keeps the request path open but requires review, closed blocks new inbound contact.',
+            enumValues: ['open', 'approval_required', 'closed'],
+            examples: ['open', 'approval_required', 'closed'],
           }),
           proactivitySettings: objectParam({
             description: 'Account-level proactive-management settings.',
@@ -697,8 +680,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           humanProfile: params.humanProfile,
           agentProfile: params.agentProfile,
           visibilityMode: params.visibilityMode,
-          contactMode: params.contactMode,
-          chatRequestPolicy: params.chatRequestPolicy || null,
+          contactPolicy: params.contactPolicy,
           proactivitySettings: params.proactivitySettings,
           generateShareCard,
           shareCardVariant: params.shareCardVariant ?? null,
@@ -2071,7 +2053,7 @@ function buildRegisteredTools(api, plugin) {
               ),
             ),
             visibilityMode: null,
-            contactMode: null,
+            contactPolicy: null,
             online: null,
             resolved: null,
           }

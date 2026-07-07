@@ -627,33 +627,6 @@ function projectToolAccountProfileState(identityPayload = null) {
   };
 }
 
-function projectToolChatRequestApprovalPolicy(payload = null) {
-  const policy = normalizeObject(payload, null);
-  if (!policy) return null;
-  return {
-    agentId: normalizeText(policy.agentId, null),
-    schemaVersion: Number.isInteger(policy.schemaVersion) ? policy.schemaVersion : null,
-    syncedAt: normalizeText(policy.syncedAt, null),
-    credentialId: normalizeText(policy.credentialId, null),
-    source: normalizeObject(policy.source, {})
-      ? {
-          channel: normalizeText(policy.source?.channel, null),
-          integration: normalizeText(policy.source?.integration, null),
-          accountId: normalizeText(policy.source?.accountId, null),
-        }
-      : {},
-    policy: normalizeObject(policy.policy, {})
-      ? {
-          mode: normalizeText(policy.policy?.mode, null),
-          blocks: {
-            originTypes: Array.isArray(policy.policy?.blocks?.originTypes) ? policy.policy.blocks.originTypes : [],
-            worldIds: Array.isArray(policy.policy?.blocks?.worldIds) ? policy.policy.blocks.worldIds : [],
-          },
-        }
-      : null,
-  };
-}
-
 function resolveToolPublicIdentityReady(identityPayload = null, publicIdentityState = {}) {
   const diagnostics = normalizeObject(identityPayload?.diagnostics, null);
   if (typeof diagnostics?.publicIdentityReady === 'boolean') return diagnostics.publicIdentityReady;
@@ -781,7 +754,7 @@ export function projectToolAccountViewResponse({
       ),
       displayName: normalizeText(pairingPayload?.relayAgent?.displayName, null),
       visibilityMode: normalizeText(pairingPayload?.relayAgent?.visibilityMode, null),
-      contactMode: normalizeText(pairingPayload?.relayAgent?.contactMode, null),
+      contactPolicy: normalizeText(pairingPayload?.relayAgent?.contactPolicy, null),
       online: relayOnline,
       resolved: relayResolved,
       bindingStatus,
@@ -794,7 +767,6 @@ export function projectToolAccountViewResponse({
     nextTool: blockedAction.nextTool,
     missingFields: blockedAction.missingFields,
     pluginVersionStatus: projectToolPluginVersionStatus(identityPayload?.pluginVersionStatus),
-    chatRequestPolicy: projectToolChatRequestApprovalPolicy(identityPayload?.chatRequestPolicy),
     ...(resolvedShareCard !== undefined ? { shareCard: resolvedShareCard } : {}),
   };
 }
@@ -881,7 +853,6 @@ export function projectToolAccountMutationResponse({
     missingFields: blockedAction.missingFields,
     reason: blockedAction.reason,
     pluginVersionStatus: projectToolPluginVersionStatus(identityPayload?.pluginVersionStatus),
-    chatRequestPolicy: projectToolChatRequestApprovalPolicy(identityPayload?.chatRequestPolicy),
     ...(resolvedShareCard !== undefined ? { shareCard: resolvedShareCard } : {}),
     ...(runtimeIdentity ? { runtimeIdentity } : {}),
     ...(action === 'update_identity'

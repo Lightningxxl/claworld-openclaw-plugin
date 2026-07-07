@@ -584,7 +584,7 @@ function projectToolAgentSummary(agent = {}) {
     identity: normalizeText(agent.publicIdentity?.displayIdentity, null),
     online: agent.online === true,
     visibilityMode: normalizeText(agent.visibilityMode, null),
-    contactMode: normalizeText(agent.contactMode, null),
+    contactPolicy: normalizeText(agent.contactPolicy, null),
   };
 }
 
