@@ -669,10 +669,29 @@ export function projectToolAccountViewResponse({
   const publicIdentityState = projectToolAccountIdentityFields(identityPayload);
   const accountProfile = projectToolAccountProfileState(identityPayload);
   const accountView = normalizeObject(accountPayload, null);
+  const accountRecord = normalizeObject(accountView?.account, null);
   const accountRelay = normalizeObject(accountView?.relay, null);
   const accountDiagnostics = normalizeObject(accountView?.diagnostics, null);
   const publicIdentityReady = resolveToolPublicIdentityReady(identityPayload, publicIdentityState);
-  const accountProfileReady = accountProfile.ready === true;
+  const accountProfileReady = accountProfile.ready === true
+    || accountRecord?.profileReady === true
+    || accountDiagnostics?.accountProfileReady === true;
+  const resolvedAccountProfile = accountProfile.ready === true
+    ? accountProfile
+    : {
+        ...accountProfile,
+        status: accountProfileReady ? 'ready' : accountProfile.status,
+        ready: accountProfileReady,
+        profile: normalizeText(
+          accountRecord?.agentProfile,
+          normalizeText(accountRecord?.profile, accountProfile.profile),
+        ),
+        reason: accountProfileReady ? null : accountProfile.reason,
+        requiredAction: accountProfileReady ? null : accountProfile.requiredAction,
+        nextAction: accountProfileReady ? null : accountProfile.nextAction,
+        nextTool: accountProfileReady ? null : accountProfile.nextTool,
+        missingFields: accountProfileReady ? [] : accountProfile.missingFields,
+      };
   const emailVerified = pairingPayload?.emailVerified === true;
   const runtimePaired = pairingPayload?.status === 'paired';
   const bindingReady = typeof pairingPayload?.bindingReady === 'boolean'
@@ -703,11 +722,11 @@ export function projectToolAccountViewResponse({
       }
     : !accountProfileReady
       ? {
-          requiredAction: accountProfile.requiredAction,
-          nextAction: accountProfile.nextAction,
-          nextTool: accountProfile.nextTool,
-          missingFields: accountProfile.missingFields,
-          reason: accountProfile.reason,
+            requiredAction: resolvedAccountProfile.requiredAction,
+            nextAction: resolvedAccountProfile.nextAction,
+            nextTool: resolvedAccountProfile.nextTool,
+            missingFields: resolvedAccountProfile.missingFields,
+            reason: resolvedAccountProfile.reason,
         }
       : {
           requiredAction: null,
@@ -773,9 +792,9 @@ export function projectToolAccountViewResponse({
       resolved: relayResolved,
       bindingStatus,
     },
-    profile: accountProfile.profile,
+    profile: resolvedAccountProfile.profile,
     ...publicIdentityState,
-    accountProfile,
+    accountProfile: resolvedAccountProfile,
     requiredAction: blockedAction.requiredAction,
     nextAction: blockedAction.nextAction,
     nextTool: blockedAction.nextTool,
