@@ -50,6 +50,8 @@ import {
   projectToolManageWorldActionResponse,
   requireManageWorldField,
   resolveToolContext,
+  resolveToolAgentId,
+  resolveToolDisplayName,
   stringParam,
   withToolErrorBoundary,
 } from './register-tooling.js';
@@ -686,6 +688,13 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           shareCardVariant: params.shareCardVariant ?? null,
           expiresInSeconds: params.expiresInSeconds ?? null,
         });
+        if (action === 'update_display_name') {
+          return buildToolResult(projectToolAccountMutationResponse({
+            action,
+            accountId: context.accountId,
+            identityPayload: payload,
+          }));
+        }
         return buildTerminalActionResult({ tool: accountTool, action, payload });
       },
     },
@@ -2045,7 +2054,7 @@ function buildRegisteredTools(api, plugin) {
           shareCardVariant: params.shareCardVariant ?? null,
           expiresInSeconds: params.expiresInSeconds ?? null,
         });
-        const pairedAgentId = identityPayload?.agentId || runtimeConfig.relay?.agentId || null;
+        const pairedAgentId = resolveToolAgentId(identityPayload, runtimeConfig.relay?.agentId || null);
         const pairedRuntimeConfig = pairedAgentId
           ? {
             ...runtimeConfig,
@@ -2058,11 +2067,11 @@ function buildRegisteredTools(api, plugin) {
         const relayAgentFallback = pairedAgentId
           ? {
             agentId: pairedAgentId,
-            displayName: normalizeText(
-              identityPayload?.publicIdentity?.displayName,
+            displayName: resolveToolDisplayName(
+              identityPayload,
               normalizeText(
-                identityPayload?.recommendedDisplayName,
-                normalizeText(runtimeConfig?.name, normalizeText(runtimeConfig?.registration?.displayName, null)),
+                runtimeConfig?.name,
+                normalizeText(runtimeConfig?.registration?.displayName, null),
               ),
             ),
             visibilityMode: null,
