@@ -13,6 +13,7 @@ import {
   projectToolWorldSearchResponse,
 } from '../runtime/tool-contracts.js';
 import { CLAWORLD_TOOL_CONTRACT_VERSION } from '../runtime/tool-inventory.js';
+import { CLAWORLD_PLUGIN_CURRENT_VERSION } from '../plugin-version.js';
 import {
   CLAWORLD_BOOTSTRAP_TARGETS,
   appendClaworldJournalEvent,
@@ -145,6 +146,18 @@ const CHAT_INBOX_FILTER_STATUSES = Object.freeze([
   'kickoff_failed',
   'ended',
 ]);
+const FEEDBACK_CATEGORIES = Object.freeze([
+  'experience_issue',
+  'usage_issue',
+  'bug_report',
+  'feature_request',
+]);
+const FEEDBACK_IMPACTS = Object.freeze([
+  'low',
+  'medium',
+  'high',
+  'blocker',
+]);
 const CHAT_INBOX_FILTER_KEYS = Object.freeze([
   'direction',
   'mode',
@@ -242,6 +255,13 @@ function normalizeTerminalAccountAction(params = {}) {
     requireManageWorldField('chatRequestPolicy', 'chatRequestPolicy is not supported by claworld_manage_account; use contactPolicy');
   }
   if (Object.prototype.hasOwnProperty.call(params, 'proactivitySettings')) return 'set_proactivity';
+  if (
+    hasProvidedToolParam(params, 'category')
+    || hasProvidedToolParam(params, 'title')
+    || hasProvidedToolParam(params, 'actualBehavior')
+    || hasProvidedToolParam(params, 'expectedBehavior')
+    || hasProvidedToolParam(params, 'reproductionSteps')
+  ) return 'submit_feedback';
   return 'view_account';
 }
 
@@ -348,6 +368,66 @@ function hasProvidedToolParam(params = {}, fieldId) {
   const value = params[fieldId];
   if (typeof value === 'string') return normalizeText(value, null) != null;
   return value != null;
+}
+
+function normalizeFeedbackStringList(values = []) {
+  const source = Array.isArray(values) ? values : [values];
+  return [...new Set(source.map((value) => normalizeText(value, null)).filter(Boolean))];
+}
+
+function validateTerminalFeedbackPayload(params = {}) {
+  const category = normalizeText(params.category, null);
+  const impact = normalizeText(params.impact, 'medium');
+  if (!category) requireManageWorldField('category', 'category is required for action=submit_feedback');
+  if (!FEEDBACK_CATEGORIES.includes(category)) {
+    requireManageWorldField('category', `category must be one of ${FEEDBACK_CATEGORIES.join(', ')}`);
+  }
+  if (!FEEDBACK_IMPACTS.includes(impact)) {
+    requireManageWorldField('impact', `impact must be one of ${FEEDBACK_IMPACTS.join(', ')}`);
+  }
+  for (const fieldId of ['title', 'goal', 'actualBehavior', 'expectedBehavior']) {
+    if (!normalizeText(params[fieldId], null)) {
+      requireManageWorldField(fieldId, `${fieldId} is required for action=submit_feedback`);
+    }
+  }
+  if (
+    params.context != null
+    && (!params.context || typeof params.context !== 'object' || Array.isArray(params.context))
+  ) {
+    requireManageWorldField('context', 'context must be an object for action=submit_feedback');
+  }
+}
+
+function normalizeTerminalFeedbackContext(params = {}) {
+  const context = normalizeObject(params.context, {}) || {};
+  const metadata = normalizeObject(context.metadata, {}) || {};
+  const redactionNotes = normalizeText(params.redactionNotes, null);
+  return {
+    worldId: normalizeText(context.worldId, normalizeText(params.worldId, null)),
+    conversationKey: normalizeText(context.conversationKey, normalizeText(params.conversationKey, null)),
+    turnId: normalizeText(context.turnId, normalizeText(params.turnId, null)),
+    deliveryId: normalizeText(context.deliveryId, normalizeText(params.deliveryId, null)),
+    targetAgentId: normalizeText(context.targetAgentId, normalizeText(params.targetAgentId, null)),
+    tags: normalizeFeedbackStringList(context.tags),
+    metadata: {
+      ...metadata,
+      ...(redactionNotes ? { redactionNotes } : {}),
+    },
+  };
+}
+
+function normalizeTerminalFeedbackPayload(params = {}) {
+  return {
+    category: normalizeText(params.category, null),
+    title: normalizeText(params.title, null),
+    goal: normalizeText(params.goal, null),
+    actualBehavior: normalizeText(params.actualBehavior, null),
+    expectedBehavior: normalizeText(params.expectedBehavior, null),
+    impact: normalizeText(params.impact, 'medium'),
+    details: normalizeText(params.details, null),
+    reproductionSteps: normalizeFeedbackStringList(params.reproductionSteps),
+    context: normalizeTerminalFeedbackContext(params),
+  };
 }
 
 function buildChatInboxFiltersParam({ description, worldIdProperty } = {}) {
@@ -507,7 +587,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
     {
       name: accountTool,
       label: 'Claworld Manage Account',
-      description: 'Terminal account surface for readiness, public identity, global profile, share-card generation, visibility, inbound contact policy, notification/proactivity policy, and email-based identity verification.',
+      description: 'Terminal account surface for readiness, public identity, global profile, share-card generation, visibility, inbound contact policy, notification/proactivity policy, email-based identity verification, and authenticated feedback submission.',
       metadata: buildToolMetadata({
         category: 'account',
         usageNotes: [
@@ -515,6 +595,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           'Use action=view_account for readiness; update_display_name, update_agent_profile, or set_contact_policy for common account mutations.',
           'Use start_email_verification with email + optional displayName to start email-based identity verification, then complete_email_verification with email + code to finish.',
           'Use subscribe_person or unsubscribe_person when a search/profile result exposes a person subscription target.',
+          'Use submit_feedback for Claworld bugs, confusing behavior, missing capability, or feature requests. The tool handles auth internally.',
         ],
       }),
       parameters: objectParam({
@@ -525,7 +606,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           action: stringParam({
             description: 'Account action.',
             enumValues: TERMINAL_ACCOUNT_ACTIONS,
-            examples: ['view_account', 'start_email_verification', 'update_display_name', 'set_contact_policy'],
+            examples: ['view_account', 'start_email_verification', 'update_display_name', 'set_contact_policy', 'submit_feedback'],
           }),
           displayName: stringParam({
             description: 'Public-facing display name for update_display_name or start_email_verification.',
@@ -591,6 +672,49 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             minLength: 1,
             examples: ['123456'],
           }),
+          category: stringParam({
+            description: 'Feedback category.',
+            enumValues: FEEDBACK_CATEGORIES,
+            examples: ['bug_report', 'feature_request'],
+          }),
+          title: stringParam({
+            description: 'Short developer-readable feedback title.',
+            minLength: 1,
+            examples: ['Feedback submission should use account tool auth'],
+          }),
+          goal: stringParam({
+            description: 'What the human was trying to do.',
+            minLength: 1,
+          }),
+          actualBehavior: stringParam({
+            description: 'What actually happened.',
+            minLength: 1,
+          }),
+          expectedBehavior: stringParam({
+            description: 'What should have happened.',
+            minLength: 1,
+          }),
+          impact: stringParam({
+            description: 'Feedback impact.',
+            enumValues: FEEDBACK_IMPACTS,
+            examples: ['medium'],
+          }),
+          details: stringParam({
+            description: 'Developer-facing feedback details.',
+            minLength: 1,
+          }),
+          reproductionSteps: arrayParam({
+            description: 'Repeatable feedback reproduction steps.',
+            items: stringParam({ minLength: 1 }),
+          }),
+          context: objectParam({
+            description: 'Lookup metadata, such as worldId, conversationKey, deliveryId, targetAgentId, tags, and metadata.',
+            additionalProperties: true,
+          }),
+          redactionNotes: stringParam({
+            description: 'Optional note about what was redacted before submit_feedback.',
+            minLength: 1,
+          }),
         },
       }),
       async execute(toolCallId, params = {}) {
@@ -648,6 +772,33 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             code,
           });
           return buildTerminalActionResult({ tool: accountTool, action, payload });
+        }
+
+        if (action === 'submit_feedback') {
+          validateTerminalFeedbackPayload(params);
+          const feedback = normalizeTerminalFeedbackPayload(params);
+          const toolContext = await resolveToolContext(api, plugin, params, {
+            requiredPublicIdentityCapability: 'submit feedback',
+          });
+          if (typeof plugin.runtime.productShell.feedback?.submitFeedback !== 'function') {
+            requireManageWorldField('action', 'action=submit_feedback requires the feedback runtime adapter');
+          }
+          const payload = await plugin.runtime.productShell.feedback.submitFeedback({
+            ...toolContext,
+            ...feedback,
+            toolCallId,
+            source: 'openclaw_account_tool',
+            runtimeToolName: accountTool,
+            accountToolAction: action,
+            pluginVersion: CLAWORLD_PLUGIN_CURRENT_VERSION,
+            toolContractVersion: CLAWORLD_TOOL_CONTRACT_VERSION,
+          });
+          return buildTerminalActionResult({
+            tool: accountTool,
+            action,
+            payload: projectToolFeedbackSubmissionResponse(payload),
+            status: 'recorded',
+          });
         }
 
         const implementationAction = ACCOUNT_IMPLEMENTATION_ACTIONS[action] || null;

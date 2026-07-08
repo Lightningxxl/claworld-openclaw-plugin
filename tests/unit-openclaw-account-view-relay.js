@@ -28,11 +28,18 @@ async function main() {
               credentialToken: 'relay_at_moza',
             },
           },
+          noauth: {
+            enabled: true,
+            serverUrl: 'http://127.0.0.1:8787',
+            apiKey: 'demo-plugin-key',
+            accountId: 'noauth',
+          },
         },
       },
     },
   };
   let accountRelayMode = 'live';
+  let feedbackRequest = null;
   const publicIdentity = {
     status: 'ready',
     displayName: 'Moza',
@@ -156,6 +163,26 @@ async function main() {
           }
           return jsonResponse(common);
         }
+        if (href.endsWith('/v1/feedback') && method === 'POST') {
+          feedbackRequest = { href, init, body };
+          return jsonResponse({
+            status: 'recorded',
+            feedback: {
+              feedbackId: 'fb_tool_123',
+              category: body.category,
+              impact: body.impact,
+              title: body.title,
+              accountId: body.accountId,
+              reporter: {
+                agentId: body.agentId,
+                publicIdentity,
+              },
+              context: body.context,
+              runtimeContext: body.runtimeContext,
+              createdAt: '2026-07-08T00:00:00.000Z',
+            },
+          });
+        }
         if (href.endsWith('/v1/agents') && method === 'GET') {
           return jsonResponse({
             items: [
@@ -221,6 +248,50 @@ async function main() {
   assert.equal(updateIdentityPayload.shareCard.status, 'ready');
   assert.equal(updateIdentityPayload.shareCard.imageUrl, shareCard.imageUrl);
   assert.equal(JSON.stringify(updateIdentityPayload).includes('[object Object]'), false);
+
+  const feedbackResult = await manageAccount.execute('tool_feedback_submit', {
+    accountId: 'moza',
+    action: 'submit_feedback',
+    category: 'bug_report',
+    title: 'Feedback submission should use account tool auth',
+    goal: 'report a Claworld runtime issue',
+    actualBehavior: 'agent tried to run curl',
+    expectedBehavior: 'account tool submits the report',
+    impact: 'medium',
+    details: 'Manual HTTP should not be needed.',
+    reproductionSteps: ['Ask to report feedback'],
+    context: { worldId: 'w1', tags: ['feedback'] },
+  });
+  const feedbackPayload = JSON.parse(feedbackResult.content[0].text);
+  assert.equal(feedbackRequest.href, 'http://127.0.0.1:8787/v1/feedback');
+  assert.equal(feedbackRequest.body.agentId, 'agt_moza');
+  assert.equal(feedbackRequest.body.accountId, 'moza');
+  assert.equal(feedbackRequest.body.source, 'openclaw_account_tool');
+  assert.equal(feedbackRequest.body.runtimeContext.toolName, 'claworld_manage_account');
+  assert.equal(feedbackRequest.body.runtimeContext.accountToolAction, 'submit_feedback');
+  assert.equal(feedbackRequest.init.headers.authorization, 'Bearer relay_at_moza');
+  assert.equal(feedbackRequest.init.headers['x-claworld-app-token'], 'relay_at_moza');
+  assert.equal(feedbackPayload.tool, 'claworld_manage_account');
+  assert.equal(feedbackPayload.action, 'submit_feedback');
+  assert.equal(feedbackPayload.status, 'recorded');
+  assert.equal(feedbackPayload.feedbackId, 'fb_tool_123');
+  assert.equal(feedbackPayload.reporterAgentId, 'agt_moza');
+  assert.equal(feedbackPayload.runtime.toolName, 'claworld_manage_account');
+  assert.equal(feedbackPayload.runtime.accountToolAction, 'submit_feedback');
+
+  const missingFeedbackAuthResult = await manageAccount.execute('tool_feedback_missing_auth', {
+    accountId: 'noauth',
+    action: 'submit_feedback',
+    category: 'bug_report',
+    title: 'Feedback should be authenticated',
+    goal: 'report a Claworld runtime issue',
+    actualBehavior: 'missing token',
+    expectedBehavior: 'clear setup error',
+  });
+  const missingFeedbackAuthPayload = JSON.parse(missingFeedbackAuthResult.content[0].text);
+  assert.equal(missingFeedbackAuthPayload.status, 'error');
+  assert.equal(missingFeedbackAuthPayload.code, 'public_identity_incomplete');
+  assert.equal(missingFeedbackAuthPayload.nextTool, 'claworld_manage_account');
 
   accountRelayMode = 'omitted';
   const omittedResult = await manageAccount.execute('tool_account_omitted', {

@@ -37,6 +37,9 @@ export async function submitFeedbackReport({
   fetchImpl,
   logger = console,
   toolCallId = null,
+  source = 'openclaw_runtime',
+  runtimeToolName = 'claworld_feedback_helper',
+  accountToolAction = null,
   pluginVersion = null,
   toolContractVersion = null,
 } = {}) {
@@ -86,10 +89,11 @@ export async function submitFeedbackReport({
         tags: normalizeStringList(normalizedContext.tags),
         metadata: normalizeObject(normalizedContext.metadata),
       },
-      source: 'openclaw_runtime',
+      source: normalizeText(source, 'openclaw_runtime'),
       runtimeContext: {
         channelId: 'claworld',
-        toolName: 'claworld_feedback_helper',
+        toolName: normalizeText(runtimeToolName, 'claworld_feedback_helper'),
+        accountToolAction: normalizeText(accountToolAction, null),
         toolCallId: normalizeText(toolCallId, null),
         ...diagnostics,
         toolContractVersion: normalizeText(toolContractVersion, null),

@@ -182,7 +182,7 @@ export function buildClaworldContextPointer(options = {}) {
     '- For a broadcast, the preview should read like an announcement a person would understand: which world, who receives it, the exact text they will see, whether it also turns broadcast on or off, and what members will actually experience. Say it in plain words — do not put raw field names like `worldId`, `excludeSelf`, or `announcementText` into what you show the human. Call the broadcast action once after confirmation. If the result is unclear or the runtime restarted, check `list_broadcast_history` before doing it again.',
     '',
     '## Feedback Routing',
-    '- When the human wants to send feedback, report a bug, or suggest something, route it through the `claworld-help` skill and the configured Claworld backend `/v1/feedback` route.',
+    '- When the human wants to send feedback, report a bug, or suggest something, read the `claworld-help` skill and submit through `claworld_manage_account(action=submit_feedback)`, which supplies configured auth context internally.',
     '- Redact app tokens, auth headers, credentials, and raw secret-bearing commands from anything you submit or show the human.',
     '- On success, tell the human the `feedbackId`. If submission fails, say so plainly and keep a local draft or pointer in `.claworld/reports/` instead of silently dropping it.',
     '',

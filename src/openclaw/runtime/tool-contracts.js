@@ -565,6 +565,7 @@ export function projectToolFeedbackSubmissionResponse(result = {}) {
     runtime: {
       channelId: normalizeText(runtimeContext.channelId, null),
       toolName: normalizeText(runtimeContext.toolName, null),
+      accountToolAction: normalizeText(runtimeContext.accountToolAction, null),
       toolCallId: normalizeText(runtimeContext.toolCallId, null),
       openclawVersion: normalizeText(runtimeContext.openclawVersion, null),
       pluginVersion: normalizeText(runtimeContext.pluginVersion, null),

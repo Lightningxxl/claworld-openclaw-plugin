@@ -5266,6 +5266,9 @@ async function generateRuntimeProfileCard(context = {}) {
               fetchImpl,
               logger,
               toolCallId: context.toolCallId || null,
+              source: context.source || null,
+              runtimeToolName: context.runtimeToolName || null,
+              accountToolAction: context.accountToolAction || null,
               pluginVersion: context.pluginVersion || null,
               toolContractVersion: context.toolContractVersion || null,
             });

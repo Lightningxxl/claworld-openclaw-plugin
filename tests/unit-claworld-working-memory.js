@@ -152,7 +152,7 @@ async function main() {
     assert.ok(pointer.includes('read like an announcement a person would understand'), 'broadcast preview should read like a human announcement');
     assert.ok(pointer.includes('do not put raw field names'), 'world confirmation should keep raw field names out of human-facing text');
     assert.ok(pointer.includes('## Feedback Routing'));
-    assert.ok(pointer.includes('configured Claworld backend `/v1/feedback` route'));
+    assert.ok(pointer.includes('claworld_manage_account(action=submit_feedback)'));
     assert.ok(pointer.includes('Redact app tokens'));
     assert.ok(pointer.includes('## Starting Conversations'));
     assert.ok(pointer.includes('delegating to a peer-facing copy of yourself'));

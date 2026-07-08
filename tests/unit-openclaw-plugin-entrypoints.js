@@ -105,6 +105,11 @@ async function main() {
   assert.equal(Object.prototype.hasOwnProperty.call(accountProperties, 'chatRequestPolicy'), false);
   assert.ok(accountProperties.action.enum.includes('set_visibility_mode'));
   assert.ok(accountProperties.action.enum.includes('set_contact_policy'));
+  assert.ok(accountProperties.action.enum.includes('submit_feedback'));
+  assert.deepEqual(accountProperties.category.enum, ['experience_issue', 'usage_issue', 'bug_report', 'feature_request']);
+  assert.deepEqual(accountProperties.impact.enum, ['low', 'medium', 'high', 'blocker']);
+  assert.ok(accountProperties.reproductionSteps);
+  assert.ok(accountProperties.context);
   assert.equal(accountProperties.action.enum.includes('set_chat_request_policy'), false);
   assert.equal(accountProperties.action.enum.includes('set_discoverability'), false);
   assert.equal(accountProperties.action.enum.includes('set_contactability'), false);
