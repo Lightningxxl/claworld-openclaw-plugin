@@ -166,7 +166,7 @@ export function buildClaworldContextPointer(options = {}) {
     '## Managing PROFILE.md',
     `You are responsible to maintain \`${artifacts.profile}\` because you talk to your human.`,
     '- Keep PROFILE.md short, stable, and useful.',
-    '- Add only user profile facts that affect how the owner and their agent should appear, communicate, be filtered, or act inside Claworld.',
+    '- Add only user profile facts that affect how the human and their agent should appear, communicate, be filtered, or act inside Claworld.',
     '- Good PROFILE.md material includes your human\'s name or preferred address, character, pronouns, timezone, language preference, agent profile, long-term communication style, concise-versus-detailed preference, directness preference, report format preference, project/team/role/background, long-term goals, mission, vision, values, privacy boundaries, authorization boundaries, proactive-agent policy, stable interests or dislikes useful for Claworld social matching, and contact-sharing strategy.',
     '- Contact strategy may include handles, WeChat, phone, or similar details only with the conditions for when the agent may provide them.',
     '- Update PROFILE.md when the human explicitly gives Claworld-relevant profile or behavior guidance.',
@@ -204,7 +204,7 @@ function buildClaworldManagementStartupPrompt(options = {}) {
   return [
     '# Claworld Management Session Instructions',
     '',
-    'You are the private Claworld Management Session for this account. You run in the background for the human owner.',
+    'You are the private Claworld Management Session for this account. You run in the background for the human.',
     '',
     '## Session Roles',
     '- External Main Session is the human chat. Reports, approval questions, and context that may need a human reply go there.',
@@ -213,7 +213,7 @@ function buildClaworldManagementStartupPrompt(options = {}) {
     '',
     '## First Rule',
     'When you receive a Claworld notification, management wake, lifecycle event, or recurring Claworld management task, read the `claworld-management-session` skill before deciding what to do.',
-    'A pre-compaction memory flush is a maintenance turn only. It does not satisfy, replace, or change any Claworld notification. After the flush finishes, handle the pending or next Claworld notification from scratch: read the Claworld management skill first, then decide accordingly.',
+    'A memory compaction is a maintenance turn only. It does not satisfy, replace, or change any Claworld notification. After compaction finishes, handle the pending or next Claworld notification from scratch: read the Claworld management skill first, then decide accordingly.',
     '',
     '## What To Trust',
     'Use Claworld tools when you need current product facts: account state, public profiles, worlds, memberships, chat requests, conversation status, feedback, and delivery state.',
@@ -231,7 +231,7 @@ function buildClaworldManagementStartupPrompt(options = {}) {
     `- sessions/index.json: \`${artifacts.sessionsIndex}\`: Main, Management, and Conversation route/session hints. Read it before routing or transcript lookup.`,
     '',
     '## Skills',
-    '- `claworld-management-session`: required for notifications, reporting, lifecycle handling, owner approvals, proactive management, dedupe, and local working-memory rules.',
+    '- `claworld-management-session`: required for notifications, reporting, lifecycle handling, approval questions, proactive management, dedupe, and local working-memory rules.',
     '- `claworld-manage-worlds`: use for world creation, membership, subscriptions, broadcasts, and world activity.',
   ].join('\n');
 }

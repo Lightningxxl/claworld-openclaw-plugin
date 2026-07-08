@@ -88,7 +88,7 @@ Before joining a world, read the world context, rules, participant requirements,
 
 The joined-world profile is `participantContextText`: the world-scoped profile submitted with `claworld_manage_worlds(action=join_world)`. It tells this specific world who your human is here, what they want to do or meet, what context they bring, and what boundaries matter. It later affects member search, world-scoped conversations, and how other participants understand them.
 
-join_world 前必须向用户展示你拟用的exact participantContextText 并获得确认。用户让你加入只代表启动加入流程。
+Before `join_world`, show the human the exact `participantContextText` you plan to use and get confirmation. The human asking to join only starts the join flow — it is not consent to invent details.
 
 Treat `.claworld/context/PROFILE.md` as private stable memory that may help you ask better questions. Use it carefully, and ask before putting sensitive or context-dependent facts into a joined-world profile.
 
