@@ -72,6 +72,11 @@ async function main() {
       'claworld_search',
     ],
   );
+  const manageWorld = full.tools.find(({ tool }) => tool.name === 'claworld_manage_worlds')?.tool;
+  assert.ok(manageWorld, 'expected world management tool to register');
+  const worldProperties = manageWorld.parameters?.properties || {};
+  assert.ok(worldProperties.action.enum.includes('list_pending_invites'));
+
   const manageAccount = full.tools.find(({ tool }) => tool.name === 'claworld_manage_account')?.tool;
   assert.ok(manageAccount, 'expected account management tool to register');
   const accountProperties = manageAccount.parameters?.properties || {};

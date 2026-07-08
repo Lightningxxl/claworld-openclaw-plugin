@@ -59,6 +59,7 @@ export const PUBLIC_TOOL_ACTION_CATALOG = Object.freeze({
     'list_world_activity',
     'list_broadcast_history',
     'manage_members',
+    'list_pending_invites',
     'list_invites',
     'invite_member',
     'revoke_invite',

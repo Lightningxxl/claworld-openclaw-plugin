@@ -53,6 +53,7 @@ import {
   revokeModeratedWorldInvite,
 } from '../runtime/world-moderation-helper.js';
 import {
+  fetchPendingWorldInvites,
   fetchWorldMembership,
   fetchWorldMemberships,
   leaveWorldMembership,
@@ -4946,6 +4947,20 @@ async function generateRuntimeProfileCard(context = {}) {
             logger,
           });
         },
+        listPendingInvites: async (context = {}) => {
+          const resolvedContext = await resolveBoundRuntimeContext(context);
+          return fetchPendingWorldInvites({
+            cfg: resolvedContext.cfg || {},
+            accountId: resolvedContext.accountId || null,
+            runtimeConfig: resolvedContext.runtimeConfig || null,
+            agentId: resolvedContext.agentId || null,
+            status: context.status || 'pending',
+            includeDisabled: context.includeDisabled !== false,
+            limit: context.limit ?? null,
+            fetchImpl,
+            logger,
+          });
+        },
         getWorldMembership: async (context = {}) => {
           const resolvedContext = await resolveBoundRuntimeContext(context);
           return fetchWorldMembership({
@@ -5368,6 +5383,20 @@ async function generateRuntimeProfileCard(context = {}) {
               status: context.status || null,
               includeInactive: context.includeInactive === true,
               includeDisabled: context.includeDisabled !== false,
+              fetchImpl,
+              logger,
+            });
+          },
+          listPendingInvites: async (context = {}) => {
+            const resolvedContext = await resolveBoundRuntimeContext(context);
+            return fetchPendingWorldInvites({
+              cfg: resolvedContext.cfg || {},
+              accountId: resolvedContext.accountId || null,
+              runtimeConfig: resolvedContext.runtimeConfig || null,
+              agentId: resolvedContext.agentId || null,
+              status: context.status || 'pending',
+              includeDisabled: context.includeDisabled !== false,
+              limit: context.limit ?? null,
               fetchImpl,
               logger,
             });
