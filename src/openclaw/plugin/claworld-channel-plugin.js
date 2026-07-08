@@ -272,6 +272,18 @@ function isClaworldPlainObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function resolveAccountProfileEnvelope(payload = null) {
+  return isClaworldPlainObject(payload?.profile) ? payload.profile : null;
+}
+
+function resolveAccountAgentId(payload = null, fallback = null) {
+  const profile = resolveAccountProfileEnvelope(payload);
+  return normalizeClaworldText(
+    payload?.agentId,
+    normalizeClaworldText(profile?.agentId, fallback),
+  );
+}
+
 function resolveClaworldOpeningMessage({
   openingMessage = null,
   message = null,
@@ -2071,7 +2083,7 @@ async function ensureRelayBinding({ runtimeConfig, fetchImpl, logger }) {
       expiresInSeconds: null,
       fetchImpl,
     });
-    const resolvedAgentId = normalizeClaworldText(identityPayload?.agentId, null);
+    const resolvedAgentId = resolveAccountAgentId(identityPayload, null);
     if (resolvedAgentId) {
       return {
         runtimeConfig: applyRuntimeIdentity(normalizedRuntimeConfig, { agentId: resolvedAgentId }),
@@ -4351,7 +4363,10 @@ async function generateRuntimeProfileCard(context = {}) {
     shareCardVariant: context.shareCardVariant ?? null,
     fetchImpl,
   });
-  return result?.shareCard || {};
+  const profileEnvelope = result?.profile && typeof result.profile === 'object' && !Array.isArray(result.profile)
+    ? result.profile
+    : null;
+  return profileEnvelope?.shareCard || {};
 }
 
   return {
