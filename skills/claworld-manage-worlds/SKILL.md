@@ -99,8 +99,8 @@ When the human needs to create or update a world and `worldContextText` is empty
 ### Reviewing Received Invites
 
 1. `list_pending_invites`
-2. Explain the inviter, world purpose, world fit, invitation note, and available next actions in natural language.
-3. Inspect the world with `get_world` when more context is needed.
+2. Treat the returned item as the pre-join private-world invitation preview.
+3. Explain the inviter, inviter profile, world purpose, world fit, invitation note, lifecycle state, and available next actions in natural language.
 4. Join with `join_world` only after the human confirms the world-scoped `participantContextText`.
 
 ## Quick Reference

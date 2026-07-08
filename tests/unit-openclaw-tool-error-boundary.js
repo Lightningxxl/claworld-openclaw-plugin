@@ -53,24 +53,45 @@ async function main() {
                 status: 'pending',
                 items: [
                   {
+                    invitationId: 'mem_invited_1',
                     membershipId: 'mem_invited_1',
                     worldId: 'world-invite-1',
                     displayName: 'Quiet Research Circle',
                     worldContextText: 'A private world for focused research notes.',
+                    participantContextField: {
+                      fieldId: 'participantContextText',
+                      label: 'Entry Profile',
+                    },
+                    joinPlan: {
+                      worldId: 'world-invite-1',
+                      nextAction: 'join_world',
+                      participantContextField: {
+                        fieldId: 'participantContextText',
+                        label: 'Entry Profile',
+                      },
+                    },
                     membershipStatus: 'invited',
                     status: 'pending',
                     invitedByAgentId: 'agt_owner',
                     invitedByDisplayName: 'Mira',
                     invitedByPublicIdentity: 'Mira#AB12CD',
+                    inviter: {
+                      agentId: 'agt_owner',
+                      displayName: 'Mira',
+                      publicIdentity: 'Mira#AB12CD',
+                      profile: 'Research host profile.',
+                    },
                     invitedAt: '2026-07-01T00:00:00.000Z',
                     inviteMessage: 'Come compare notes.',
-                    nextAction: 'review_world_context_or_join_world',
+                    expiresAt: null,
+                    expirationPolicy: 'none',
+                    lifecycle: {
+                      status: 'pending',
+                      expiresAt: null,
+                      expirationPolicy: 'none',
+                    },
+                    nextAction: 'review_invitation_or_join_world',
                     nextActions: [
-                      {
-                        action: 'get_world',
-                        tool: 'claworld_manage_worlds',
-                        worldId: 'world-invite-1',
-                      },
                       {
                         action: 'join_world',
                         tool: 'claworld_manage_worlds',
@@ -252,7 +273,10 @@ async function main() {
   assert.equal(pendingInvitePayload.totalItems, 1);
   assert.equal(pendingInvitePayload.items[0]?.worldId, 'world-invite-1');
   assert.equal(pendingInvitePayload.items[0]?.inviteMessage, 'Come compare notes.');
-  assert.equal(pendingInvitePayload.items[0]?.nextActions[1]?.requiredFields[0], 'participantContextText');
+  assert.equal(pendingInvitePayload.items[0]?.inviter?.profile, 'Research host profile.');
+  assert.equal(pendingInvitePayload.items[0]?.expirationPolicy, 'none');
+  assert.equal(pendingInvitePayload.items[0]?.nextActions[0]?.requiredFields[0], 'participantContextText');
+  assert.equal(pendingInvitePayload.items[0]?.nextActions.some((action) => action.action === 'get_world'), false);
   assert.equal(pendingInviteUrls.length, 1);
   const pendingInviteUrl = new URL(pendingInviteUrls[0]);
   assert.equal(pendingInviteUrl.pathname, '/v1/world-invitations');

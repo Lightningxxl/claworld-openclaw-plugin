@@ -65,31 +65,68 @@ function normalizePendingInviteAction(action = null) {
   };
 }
 
+function normalizeParticipantContextField(field = null) {
+  if (!field || typeof field !== 'object' || Array.isArray(field)) return null;
+  return {
+    fieldId: normalizeText(field.fieldId, null),
+    label: normalizeText(field.label, null),
+    description: normalizeText(field.description, null),
+  };
+}
+
+function normalizeJoinPlan(plan = null) {
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return null;
+  return {
+    worldId: normalizeText(plan.worldId, null),
+    participantContextField: normalizeParticipantContextField(plan.participantContextField),
+    nextAction: normalizeText(plan.nextAction, null),
+  };
+}
+
+function normalizeInviterProfile(inviter = null) {
+  if (!inviter || typeof inviter !== 'object' || Array.isArray(inviter)) return null;
+  return {
+    agentId: normalizeText(inviter.agentId, null),
+    displayName: normalizeText(inviter.displayName, null),
+    publicIdentity: normalizeText(inviter.publicIdentity, null),
+    profile: normalizeText(inviter.profile, null),
+  };
+}
+
+function normalizeInviteLifecycle(lifecycle = null) {
+  if (!lifecycle || typeof lifecycle !== 'object' || Array.isArray(lifecycle)) return null;
+  return {
+    status: normalizeText(lifecycle.status, null),
+    expiresAt: normalizeText(lifecycle.expiresAt, null),
+    expirationPolicy: normalizeText(lifecycle.expirationPolicy, null),
+    acceptedAt: normalizeText(lifecycle.acceptedAt, null),
+    inviteRevokedAt: normalizeText(lifecycle.inviteRevokedAt, null),
+  };
+}
+
 function normalizePendingWorldInvite(payload = {}) {
   return {
+    invitationId: normalizeText(payload.invitationId, null),
     membershipId: normalizeText(payload.membershipId, null),
     agentId: normalizeText(payload.agentId, null),
     worldId: normalizeText(payload.worldId, null),
     displayName: normalizeText(payload.displayName, null),
     worldContextText: normalizeText(payload.worldContextText, null),
-    ownerAgentId: normalizeText(payload.ownerAgentId, null),
-    enabled: normalizeOptionalBoolean(payload.enabled, null),
-    worldStatus: normalizeText(payload.worldStatus, null),
-    worldRole: normalizeWorldRole(payload.worldRole, null),
+    participantContextField: normalizeParticipantContextField(payload.participantContextField),
+    joinPlan: normalizeJoinPlan(payload.joinPlan),
     membershipStatus: normalizeText(payload.membershipStatus, null),
     status: normalizeText(payload.status, null),
-    participantContextText: normalizeText(payload.participantContextText, null),
-    joinedAt: normalizeText(payload.joinedAt, null),
     invitedByAgentId: normalizeText(payload.invitedByAgentId, null),
     invitedByDisplayName: normalizeText(payload.invitedByDisplayName, null),
     invitedByPublicIdentity: normalizeText(payload.invitedByPublicIdentity, null),
+    inviter: normalizeInviterProfile(payload.inviter),
     invitedAt: normalizeText(payload.invitedAt, null),
     inviteMessage: normalizeText(payload.inviteMessage, null),
-    inviteRevokedAt: normalizeText(payload.inviteRevokedAt, null),
-    acceptedAt: normalizeText(payload.acceptedAt, null),
-    leftAt: normalizeText(payload.leftAt, null),
+    expiresAt: normalizeText(payload.expiresAt, null),
+    expirationPolicy: normalizeText(payload.expirationPolicy, null),
+    lifecycle: normalizeInviteLifecycle(payload.lifecycle),
     membershipUpdatedAt: normalizeText(payload.membershipUpdatedAt, null),
-    updatedAt: normalizeText(payload.updatedAt, null),
+    worldUpdatedAt: normalizeText(payload.worldUpdatedAt, null),
     nextAction: normalizeText(payload.nextAction, null),
     nextActions: Array.isArray(payload.nextActions)
       ? payload.nextActions.map((action) => normalizePendingInviteAction(action)).filter(Boolean)
