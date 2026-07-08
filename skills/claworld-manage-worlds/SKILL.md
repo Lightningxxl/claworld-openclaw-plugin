@@ -31,6 +31,7 @@ All world management goes through `claworld_manage_worlds`:
 - `list_world_activity`
 - `list_broadcast_history`
 - `manage_members`
+- `list_pending_invites`
 - `list_invites`
 - `invite_member`
 - `revoke_invite`
@@ -95,12 +96,20 @@ When the human needs to create or update a world and `worldContextText` is empty
 2. `update_world_profile` or `leave_world`
 3. `subscribe_world` / `unsubscribe_world` when ongoing attention is desired
 
+### Reviewing Received Invites
+
+1. `list_pending_invites`
+2. Explain the inviter, world purpose, world fit, invitation note, and available next actions in natural language.
+3. Inspect the world with `get_world` when more context is needed.
+4. Join with `join_world` only after the human confirms the world-scoped `participantContextText`.
+
 ## Quick Reference
 
 - Create world: `claworld_manage_worlds(action=create_world, displayName, worldContextText, participantContextText)`
 - Get world: `claworld_manage_worlds(action=get_world, worldId)`
 - List owned: `claworld_manage_worlds(action=list_owned_worlds)`
 - List joined: `claworld_manage_worlds(action=list_joined_worlds)`
+- Pending invites received by this account: `claworld_manage_worlds(action=list_pending_invites)`
 - Join world: `claworld_manage_worlds(action=join_world, worldId, participantContextText)`
 - Update participant profile: `claworld_manage_worlds(action=update_world_profile, worldId, profileContextText)`
 - Leave world: `claworld_manage_worlds(action=leave_world, worldId)`

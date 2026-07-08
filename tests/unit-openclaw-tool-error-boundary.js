@@ -23,6 +23,7 @@ async function main() {
     },
   };
   const chatRequestBodies = [];
+  const pendingInviteUrls = [];
 
   registerClaworldPlugin(
     {
@@ -38,6 +39,53 @@ async function main() {
     },
     {
       fetchImpl: async (url, init = {}) => {
+        if (
+          String(url).includes('/v1/world-invitations')
+          && String(init?.method || 'GET').toUpperCase() === 'GET'
+        ) {
+          pendingInviteUrls.push(String(url));
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                agentId: 'agt_moza',
+                status: 'pending',
+                items: [
+                  {
+                    membershipId: 'mem_invited_1',
+                    worldId: 'world-invite-1',
+                    displayName: 'Quiet Research Circle',
+                    worldContextText: 'A private world for focused research notes.',
+                    membershipStatus: 'invited',
+                    status: 'pending',
+                    invitedByAgentId: 'agt_owner',
+                    invitedByDisplayName: 'Mira',
+                    invitedByPublicIdentity: 'Mira#AB12CD',
+                    invitedAt: '2026-07-01T00:00:00.000Z',
+                    inviteMessage: 'Come compare notes.',
+                    nextAction: 'review_world_context_or_join_world',
+                    nextActions: [
+                      {
+                        action: 'get_world',
+                        tool: 'claworld_manage_worlds',
+                        worldId: 'world-invite-1',
+                      },
+                      {
+                        action: 'join_world',
+                        tool: 'claworld_manage_worlds',
+                        worldId: 'world-invite-1',
+                        requiredFields: ['participantContextText'],
+                      },
+                    ],
+                  },
+                ],
+                totalItems: 1,
+                nextAction: 'review_pending_invites',
+              };
+            },
+          };
+        }
         if (
           String(url).includes('/v1/worlds/dating-demo-world/join')
           && String(init?.method || 'GET').toUpperCase() === 'POST'
@@ -190,6 +238,28 @@ async function main() {
   const messageAliasPayload = JSON.parse(messageAliasResult.content[0].text);
   assert.equal(messageAliasPayload.status, 'pending');
   assert.equal(chatRequestBodies[messageAliasIndex]?.openingMessage, 'hello from message alias');
+
+  const pendingInviteResult = await manageWorld.execute('tool_pending_invites_1', {
+    accountId: 'moza',
+    action: 'list_pending_invites',
+    limit: 5,
+  });
+  const pendingInvitePayload = JSON.parse(pendingInviteResult.content[0].text);
+  assert.equal(pendingInvitePayload.status, 'pending');
+  assert.equal(pendingInvitePayload.tool, 'claworld_manage_worlds');
+  assert.equal(pendingInvitePayload.action, 'list_pending_invites');
+  assert.equal(pendingInvitePayload.agentId, 'agt_moza');
+  assert.equal(pendingInvitePayload.totalItems, 1);
+  assert.equal(pendingInvitePayload.items[0]?.worldId, 'world-invite-1');
+  assert.equal(pendingInvitePayload.items[0]?.inviteMessage, 'Come compare notes.');
+  assert.equal(pendingInvitePayload.items[0]?.nextActions[1]?.requiredFields[0], 'participantContextText');
+  assert.equal(pendingInviteUrls.length, 1);
+  const pendingInviteUrl = new URL(pendingInviteUrls[0]);
+  assert.equal(pendingInviteUrl.pathname, '/v1/world-invitations');
+  assert.equal(pendingInviteUrl.searchParams.get('agentId'), 'agt_moza');
+  assert.equal(pendingInviteUrl.searchParams.get('status'), 'pending');
+  assert.equal(pendingInviteUrl.searchParams.get('includeDisabled'), 'true');
+  assert.equal(pendingInviteUrl.searchParams.get('limit'), '5');
 
   const kickoffAliasIndex = chatRequestBodies.length;
   const kickoffAliasResult = await requestChat.execute('tool_send_kickoff_alias', {

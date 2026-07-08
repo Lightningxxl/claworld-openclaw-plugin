@@ -63,6 +63,7 @@ export {
   manageModeratedWorld,
 } from './runtime/world-moderation-helper.js';
 export {
+  fetchPendingWorldInvites,
   fetchWorldMemberships,
   fetchWorldMembership,
   updateWorldMembershipProfile,

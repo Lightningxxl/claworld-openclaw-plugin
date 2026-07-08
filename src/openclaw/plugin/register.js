@@ -888,6 +888,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
         category: 'world_management',
         usageNotes: [
           'action=join_world joins a visible world with world-scoped profile text.',
+          'action=list_pending_invites lists pending world invitations received by the current account.',
           'action=create_world creates an owner-managed world.',
           'Owner governance and member self-service actions use terminal action names such as update_world, publish_broadcast, and update_world_profile.',
           'Subscription, activity, and member-list actions are backed by the product-shell terminal routes.',
@@ -1003,6 +1004,18 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             ...context,
             worldId,
             status: params.status || null,
+            limit: params.limit ?? null,
+          });
+          return buildTerminalActionResult({ tool: manageWorldsTool, action, payload });
+        }
+        if (action === 'list_pending_invites') {
+          const context = await resolveToolContext(api, plugin, params, {
+            requiredPublicIdentityCapability: 'list pending world invites',
+          });
+          const payload = await plugin.runtime.productShell.membership.listPendingInvites({
+            ...context,
+            status: params.status || 'pending',
+            includeDisabled: params.includeDisabled !== false,
             limit: params.limit ?? null,
           });
           return buildTerminalActionResult({ tool: manageWorldsTool, action, payload });
