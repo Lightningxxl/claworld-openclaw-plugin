@@ -177,6 +177,8 @@ const TERMINAL_ACCOUNT_ACTIONS = PUBLIC_TOOL_ACTION_CATALOG.claworld_manage_acco
 const TERMINAL_WORLD_ACTIONS = PUBLIC_TOOL_ACTION_CATALOG.claworld_manage_worlds;
 const TERMINAL_CONVERSATION_ACTIONS = PUBLIC_TOOL_ACTION_CATALOG.claworld_manage_conversations;
 
+const CLAWORLD_WORLD_TOOL_GUIDANCE = 'Before any world operation, read the `claworld-manage-worlds` skill.';
+
 const ACCOUNT_IMPLEMENTATION_ACTIONS = Object.freeze({
   view_account: 'view',
 });
@@ -505,7 +507,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
     {
       name: accountTool,
       label: 'Claworld Manage Account',
-      description: 'Terminal account surface for readiness, public identity, global profile, share-card generation, visibility, inbound contact policy, and email-based identity verification.',
+      description: 'Terminal account surface for readiness, public identity, global profile, share-card generation, visibility, inbound contact policy, notification/proactivity policy, and email-based identity verification.',
       metadata: buildToolMetadata({
         category: 'account',
         usageNotes: [
@@ -892,7 +894,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
     {
       name: manageWorldsTool,
       label: 'Claworld Manage Worlds',
-      description: 'Terminal world surface for browsing selected world details, joining, creation, owner governance, broadcast, and membership self-service.',
+      description: `Terminal world surface for browsing selected world details, joining, creation, governance, broadcast, invites, membership, subscriptions, and participation context. ${CLAWORLD_WORLD_TOOL_GUIDANCE}`,
       metadata: buildToolMetadata({
         category: 'world_management',
         usageNotes: [
@@ -1303,7 +1305,7 @@ function buildRegisteredTools(api, plugin) {
     {
       name: 'claworld_get_world_detail',
       label: 'Claworld Get World Detail',
-      description: 'Canonical world-inspection tool. Fetch one world detail before deciding whether to join it.',
+      description: `Canonical world-inspection tool. Fetch one world detail before deciding whether to join it. ${CLAWORLD_WORLD_TOOL_GUIDANCE}`,
       metadata: buildToolMetadata({
         category: 'world_discovery',
         usageNotes: [
@@ -1348,7 +1350,7 @@ function buildRegisteredTools(api, plugin) {
     {
       name: 'claworld_join_world',
       label: 'Claworld Join World',
-      description: 'Canonical world-entry tool. Submit one world-scoped participantContextText for the selected world and receive the current join result, membership state, and terminal member-discovery follow-up actions.',
+      description: `Canonical world-entry tool. Submit one world-scoped participantContextText for the selected world and receive the current join result, membership state, and terminal member-discovery follow-up actions. ${CLAWORLD_WORLD_TOOL_GUIDANCE}`,
       metadata: buildToolMetadata({
         category: 'world_join',
         usageNotes: [
@@ -1406,7 +1408,7 @@ function buildRegisteredTools(api, plugin) {
     {
       name: 'claworld_create_world',
       label: 'Claworld Create World',
-      description: 'Creator/admin entrypoint for publishing one new owner-managed world. It also accepts the owner participantContextText and returns the owner self-join result block on success.',
+      description: `Creator/admin entrypoint for publishing one new managed world. It also accepts the creator participantContextText and returns the self-join result block on success. ${CLAWORLD_WORLD_TOOL_GUIDANCE}`,
       metadata: buildToolMetadata({
         category: 'world_creation',
         usageNotes: [
@@ -1494,7 +1496,7 @@ function buildRegisteredTools(api, plugin) {
     {
       name: 'claworld_manage_world',
       label: 'Claworld Manage World',
-      description: 'Unified world management tool. Use owner actions for world governance, or member actions to inspect joined worlds, update your world profile, and leave a world.',
+      description: `Unified world management tool. Use governance actions for world management, or member actions to inspect joined worlds, update your world profile, and leave a world. ${CLAWORLD_WORLD_TOOL_GUIDANCE}`,
       metadata: buildToolMetadata({
         category: 'world_management',
         usageNotes: [
@@ -1910,7 +1912,7 @@ function buildRegisteredTools(api, plugin) {
     {
       name: 'claworld_account',
       label: 'Claworld Account',
-      description: 'Canonical account surface. View current relay binding plus public identity readiness, or update the public display identity for the current Claworld account.',
+      description: 'Canonical account surface. View current relay binding plus public identity readiness, or update the public display identity/profile for the current Claworld account.',
       metadata: buildToolMetadata({
         category: 'account',
         usageNotes: [

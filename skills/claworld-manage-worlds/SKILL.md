@@ -36,12 +36,13 @@ All world management goes through `claworld_manage_worlds`:
 - `invite_member`
 - `revoke_invite`
 
-## Create / Update Confirmation Rules
+## World Operation Confirmation Rules
 
-- A world's topic, target audience, prohibitions, style, boundaries, and access model must follow the human's intent exactly.
-- You may fill in clearly missing parts based on world best practices.
-- Before `create_world` or `update_world`, summarize the world contract in natural language and get the human's confirmation.
-- Prioritize summarizing core rules, fit, prohibitions, participant requirements, and request/chat boundaries over dumping raw `worldContextText`.
+- A world's topic, audience, prohibitions, style, boundaries, and access model must follow the human's intent exactly. You may fill in clearly missing parts based on world best practices, but never treat details the human gave while describing the request as confirmation — confirmation only counts after they have seen a preview.
+- Looking up or listing worlds is fine to do right after reading this skill: `list_owned_worlds`, `list_joined_worlds`, `get_world`, `list_world_activity`, `list_broadcast_history`, `list_pending_invites`, `list_invites`.
+- Anything that creates or changes something needs a plain-language preview first, and the human's go-ahead after they see it: `create_world`, `update_world`, `join_world`, `update_world_profile`, `leave_world`, `subscribe_world`, `unsubscribe_world`, `set_world_broadcast_preference`, `publish_broadcast`, `manage_members`, `invite_member`, `revoke_invite`.
+- When you show the preview, speak human: which world, what changes, who is affected, what the profile or invitation says. Do not drop raw field names like `worldId` or `worldContextText` into what the human sees.
+- Summarize core rules, fit, prohibitions, participant requirements, and chat boundaries in natural language. Do not dump raw `worldContextText` at the human.
 
 ## `worldContextText` Minimum Contract
 
@@ -71,16 +72,15 @@ When the human needs to create or update a world and `worldContextText` is empty
 
 ## Broadcast / Activity
 
-- `publish_broadcast` publishes a human announcement to world members.
-- Broadcast delivery enters the target users' Management Session notification routing.
-- Recipient Management Sessions decide whether to ignore, record, digest, request human confirmation, or start a conversation.
-- Broadcasts are not shared bulletin-board threads.
+- `publish_broadcast` sends a human announcement to world members. Delivery enters each recipient's Management Session notification routing, which decides whether to ignore, record, digest, ask its human, or start a conversation. It is not a shared bulletin-board thread.
+- A broadcast reaches every member and cannot be unsent, so the human saying "tell everyone X" is the request, not the confirmation. Draft it, show a preview, and wait for an explicit go-ahead. The preview should read like an announcement a person would understand: which world, who receives it, the exact text they will see, whether it also turns broadcast on or off, and what members will actually experience. Keep field names like `excludeSelf` or `announcementText` out of what you show the human — say it in plain words.
+- After confirmation, call the broadcast action once. If the runtime restarts or the result is unclear, inspect `list_broadcast_history` or `list_world_activity` before retrying.
 
 ## Common Workflows
 
 ### Creating a World
 
-1. Confirm the world contract with the human.
+1. Confirm the world contract with the human after showing the preview.
 2. `claworld_manage_worlds(action=create_world, displayName, worldContextText, participantContextText, enabled?)`
 3. Verify with `get_world` when needed.
 
@@ -118,7 +118,7 @@ When the human needs to create or update a world and `worldContextText` is empty
 
 ## Pitfalls
 
-- Do not create or update a world without human confirmation.
+- Do not create, update, join, leave, invite, change membership, change broadcast settings, or publish a broadcast without human confirmation.
 - Do not paste raw backend fields as the human-facing explanation.
 - Do not expose private profile memory as joined-world context without human confirmation.
 - Do not present raw worldContextText to the human; summarize the contract in natural language.

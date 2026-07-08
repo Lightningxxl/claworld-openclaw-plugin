@@ -137,13 +137,36 @@ async function main() {
     assert.ok(pointer.includes('Claworld is a social app that you and your human are connected to'));
     assert.ok(pointer.includes('## Other Claworld Sessions'));
     assert.ok(pointer.includes('Do not proactively contact Conversation Sessions'));
+    assert.ok(pointer.includes('## Required Skill Routing'));
+    assert.ok(pointer.includes('read the `claworld-main-session` skill'));
+    assert.ok(pointer.includes('read the `claworld-manage-worlds` skill again'));
+    assert.ok(pointer.includes('read the `claworld-help` skill'));
     assert.ok(pointer.includes('Read these files before treating an open Claworld loop as an ordinary chat todo'));
     assert.ok(pointer.includes('Read `sessions/index.json` before searching raw local session files'));
+    assert.ok(pointer.includes('## Claworld Memory Routing'));
+    assert.ok(pointer.includes('Stable Claworld preferences'));
+    assert.ok(pointer.includes('Current Claworld goals'));
+    assert.ok(pointer.includes('Durable Claworld people'));
+    assert.ok(pointer.includes('Use generic memory only when the human clearly asks for global personal memory outside Claworld'));
+    assert.ok(pointer.includes('## World Operation Confirmation'));
+    assert.ok(pointer.includes('read like an announcement a person would understand'), 'broadcast preview should read like a human announcement');
+    assert.ok(pointer.includes('do not put raw field names'), 'world confirmation should keep raw field names out of human-facing text');
+    assert.ok(pointer.includes('## Feedback Routing'));
+    assert.ok(pointer.includes('configured Claworld backend `/v1/feedback` route'));
+    assert.ok(pointer.includes('Redact app tokens'));
     assert.ok(pointer.includes('## Starting Conversations'));
     assert.ok(pointer.includes('delegating to a peer-facing copy of yourself'));
     assert.ok(pointer.includes('claworld_manage_conversations(action=request)'));
     assert.ok(pointer.includes('localSessionKey` is an internal runtime reference'));
     assert.ok(pointer.includes('Do not use `sessions_send` to place peer-facing content'));
+
+    const manageWorldsSkill = await readText(path.join(process.cwd(), 'skills', 'claworld-manage-worlds', 'SKILL.md'));
+    assert.ok(manageWorldsSkill.includes('World Operation Confirmation Rules'));
+    assert.ok(manageWorldsSkill.includes('`publish_broadcast`'));
+    assert.ok(manageWorldsSkill.includes('read like an announcement a person would understand'), 'broadcast preview should read like a human announcement');
+    assert.ok(manageWorldsSkill.includes('Keep field names like'), 'broadcast preview should keep raw field names out of human-facing text');
+    assert.ok(manageWorldsSkill.includes('inspect `list_broadcast_history` or `list_world_activity` before retrying'));
+
     const runtimeEvent = buildClaworldRuntimeMaintenanceEvent({
       timestamp: '2026-04-22T00:00:00.000Z',
       kind: 'owner_report',
@@ -463,6 +486,13 @@ async function main() {
     assert.ok(mainBootstrap.appendSystemContext.includes('Keep single-event conversation details'));
     assert.ok(mainBootstrap.appendSystemContext.includes('When you report Claworld activity to the human'));
     assert.ok(mainBootstrap.appendSystemContext.includes('sound like a normal person giving a useful update'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('## Required Skill Routing'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('read the `claworld-main-session` skill'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('read the `claworld-manage-worlds` skill again'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('read the `claworld-help` skill'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('## Claworld Memory Routing'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('## World Operation Confirmation'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('## Feedback Routing'));
     assert.ok(mainBootstrap.appendSystemContext.includes('Do not use `sessions_send` to place peer-facing content'));
     assert.equal(mainBootstrap.appendSystemContext.includes('# Claworld Context Pointer'), false);
 

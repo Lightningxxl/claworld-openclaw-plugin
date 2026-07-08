@@ -72,12 +72,27 @@ async function main() {
       'claworld_search',
     ],
   );
-  const manageWorld = full.tools.find(({ tool }) => tool.name === 'claworld_manage_worlds')?.tool;
+  const toolByName = new Map(full.tools.map(({ tool }) => [tool.name, tool]));
+  for (const toolName of [
+    'claworld_manage_account',
+    'claworld_search',
+    'claworld_get_public_profile',
+    'claworld_manage_worlds',
+    'claworld_manage_conversations',
+  ]) {
+    const description = toolByName.get(toolName)?.description || '';
+    assert.equal(description.includes('claworld:'), false, `${toolName} description should use OpenClaw skill names without plugin prefix`);
+  }
+  assert.ok(toolByName.get('claworld_manage_account')?.description.includes('notification/proactivity policy'));
+  assert.ok(toolByName.get('claworld_manage_worlds')?.description.includes('`claworld-manage-worlds` skill'), 'world tool should route to manage-worlds skill');
+  assert.ok(!toolByName.get('claworld_manage_worlds')?.description.includes('draft/preview'), 'world confirmation detail belongs in skill/system prompt, not tool description');
+
+  const manageWorld = toolByName.get('claworld_manage_worlds');
   assert.ok(manageWorld, 'expected world management tool to register');
   const worldProperties = manageWorld.parameters?.properties || {};
   assert.ok(worldProperties.action.enum.includes('list_pending_invites'));
 
-  const manageAccount = full.tools.find(({ tool }) => tool.name === 'claworld_manage_account')?.tool;
+  const manageAccount = toolByName.get('claworld_manage_account');
   assert.ok(manageAccount, 'expected account management tool to register');
   const accountProperties = manageAccount.parameters?.properties || {};
   assert.ok(accountProperties.visibilityMode, 'expected visibilityMode account policy field');
