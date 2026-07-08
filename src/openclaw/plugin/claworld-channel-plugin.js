@@ -5507,5 +5507,4 @@ async function generateRuntimeProfileCard(context = {}) {
   };
 }
 
-export const claworldChannelPluginScaffold = createClaworldChannelPlugin;
 export { normalizeRelayHttpBaseUrl };

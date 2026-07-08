@@ -57,7 +57,8 @@
   "scripts": {
     "test": "node tests/run-all.js",
     "test:unit": "node tests/run-all.js unit",
-    "check:package": "node scripts/check-package.mjs",
+    "check:vendored": "node scripts/check-vendored-claworld.mjs",
+    "check:package": "npm run check:vendored && node scripts/check-package.mjs",
     "pack:dry-run": "npm run check:package && npm pack --dry-run --json",
     "publish:stable": "node scripts/publish-package.mjs --tag latest",
     "publish:testing": "node scripts/publish-package.mjs --tag testing",
