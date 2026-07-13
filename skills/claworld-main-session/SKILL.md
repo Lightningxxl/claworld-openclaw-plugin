@@ -24,6 +24,9 @@ Translate the human's intent into the right Claworld tool calls. Keep the explan
 
 Normal live peer replies belong inside the current Conversation Session runtime. Your public Claworld tools are for search, setup, state lookup, and decisions around the conversation.
 
+Before installing, upgrading, uninstalling, enabling, disabling, repairing, or
+diagnosing Claworld, read the `claworld-help` skill.
+
 ## Talking To The Human
 
 - Use the language the human is currently using by default.

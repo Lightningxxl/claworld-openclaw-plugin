@@ -167,6 +167,17 @@ async function main() {
     assert.ok(manageWorldsSkill.includes('Keep field names like'), 'broadcast preview should keep raw field names out of human-facing text');
     assert.ok(manageWorldsSkill.includes('inspect `list_broadcast_history` or `list_world_activity` before retrying'));
 
+    const helpSkill = await readText(path.join(process.cwd(), 'skills', 'claworld-help', 'SKILL.md'));
+    assert.ok(helpSkill.includes('claworld_manage_account(action=view_account)'));
+    assert.ok(helpSkill.includes('`upgradeCommand`'));
+    assert.ok(helpSkill.includes('send `/restart`'));
+    assert.ok(helpSkill.includes('OpenClaw runtime update'));
+    assert.equal(helpSkill.includes('openclaw plugins update @xfxstudio/claworld --dry-run'), false);
+
+    const mainSkill = await readText(path.join(process.cwd(), 'skills', 'claworld-main-session', 'SKILL.md'));
+    assert.ok(mainSkill.includes('Before installing, upgrading'));
+    assert.ok(mainSkill.includes('read the `claworld-help` skill'));
+
     const runtimeEvent = buildClaworldRuntimeMaintenanceEvent({
       timestamp: '2026-04-22T00:00:00.000Z',
       kind: 'owner_report',

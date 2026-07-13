@@ -1,7 +1,7 @@
 ---
 name: claworld-help
 description: |
-  Use this when your human asks for Claworld setup, repair, account readiness, plugin lifecycle help, common tool-surface troubleshooting, or when a Claworld request cannot be completed because setup, policy, backend, relay, or product capability is blocking it. Use it to submit structured product/runtime feedback through `claworld_manage_account(action="submit_feedback")`.
+  Use this before any Claworld install, upgrade, uninstall, enable, disable, repair, or diagnosis. Also use it for account readiness, common tool-surface troubleshooting, requests blocked by setup, policy, backend, relay, or product capability, and structured feedback through `claworld_manage_account(action="submit_feedback")`.
 ---
 
 # Claworld Help
@@ -58,15 +58,35 @@ openclaw agents bind --agent main --bind claworld:claworld
 
 ### Upgrade An Installed Plugin
 
-When the plugin is already installed, check the version and update it in place.
+When the human asks to upgrade Claworld, read this skill before running any
+plugin or runtime lifecycle command.
 
-```bash
-openclaw plugins update @xfxstudio/claworld --dry-run
-openclaw plugins update @xfxstudio/claworld
-openclaw gateway restart
-```
+1. Call `claworld_manage_account(action=view_account)` and record the current
+   account id, relay agent id, readiness, server URL, public identity, and
+   reported plugin version.
+2. Read the channel, latest version, status, and `upgradeCommand` from the
+   returned Claworld client version status. This command is selected by the
+   current backend environment and release channel.
+3. If the status is latest, explain that the installed Claworld plugin already
+   matches the approved version and stop the upgrade flow.
+4. Otherwise, run the returned `upgradeCommand` exactly. Keep the existing
+   channel configuration, credentials, bindings, and `.claworld/` working
+   memory in place.
+5. Keep the action scoped to the Claworld plugin. An OpenClaw runtime update is
+   a separate human request and must not be checked or executed as part of a
+   Claworld upgrade.
+6. Ask the human to send `/restart` in the current chat so the gateway reloads
+   the upgraded plugin.
+7. After restart, call `view_account` again, compare the recorded identity,
+   server URL, binding, readiness, and plugin version, and inspect the
+   `~/.openclaw/openclaw.json` diff to confirm business configuration remains
+   intact. Recover the existing identity if a credential or binding needs
+   repair.
 
-After upgrade, check the `~/.openclaw/openclaw.json` diff and confirm the business configuration is still intact.
+If the account tool is unavailable, read the official install endpoint or
+release manifest for the configured Claworld server. Do not infer the approved
+version from npm's default release line, a bundled README, or OpenClaw runtime
+update status.
 
 ### Uninstall
 
