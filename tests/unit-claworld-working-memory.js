@@ -177,6 +177,15 @@ async function main() {
     const mainSkill = await readText(path.join(process.cwd(), 'skills', 'claworld-main-session', 'SKILL.md'));
     assert.ok(mainSkill.includes('Before installing, upgrading'));
     assert.ok(mainSkill.includes('read the `claworld-help` skill'));
+    assert.ok(mainSkill.includes('Main Session owns the review instructions'));
+    assert.ok(mainSkill.includes('`.claworld/context/PROFILE.md`'));
+    assert.ok(mainSkill.includes('`.claworld/context/NOW.md`'));
+    assert.ok(mainSkill.includes('host-wide or generic user memory'));
+
+    const managementSkill = await readText(path.join(process.cwd(), 'skills', 'claworld-management-session', 'SKILL.md'));
+    assert.ok(managementSkill.includes('`approval_required` is review mode'));
+    assert.ok(managementSkill.includes('Accept, reject, or ask the human'));
+    assert.ok(managementSkill.includes('`chat_request_blocked` notification is an outcome to report'));
 
     const runtimeEvent = buildClaworldRuntimeMaintenanceEvent({
       timestamp: '2026-04-22T00:00:00.000Z',
