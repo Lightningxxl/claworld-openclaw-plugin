@@ -29,7 +29,7 @@ async function main() {
     {
       registerChannel() {},
       registerTool(tool) {
-        tools.push(tool);
+        tools.push(typeof tool === 'function' ? tool({}) : tool);
       },
       config: {
         async loadConfig() {

@@ -13,6 +13,7 @@ function jsonResponse(body, { status = 200 } = {}) {
 
 async function main() {
   const tools = [];
+  const sentMedia = [];
   const cfg = {
     channels: {
       claworld: {
@@ -39,6 +40,7 @@ async function main() {
     },
   };
   let accountRelayMode = 'live';
+  let mediaReceiptKind = 'media';
   let feedbackRequest = null;
   const publicIdentity = {
     status: 'ready',
@@ -91,7 +93,36 @@ async function main() {
     {
       registerChannel() {},
       registerTool(tool) {
-        tools.push(tool);
+        tools.push(typeof tool === 'function'
+          ? tool({
+              messageChannel: 'feishu',
+              deliveryContext: {
+                channel: 'feishu',
+                to: 'chat:test',
+                accountId: 'default',
+              },
+              getRuntimeConfig: () => cfg,
+            })
+          : tool);
+      },
+      runtime: {
+        channel: {
+          outbound: {
+            async loadAdapter(channel) {
+              assert.equal(channel, 'feishu');
+              return {
+                async sendMedia(params) {
+                  sentMedia.push(params);
+                  return {
+                    channel: 'feishu',
+                    messageId: `image-${sentMedia.length}`,
+                    receipt: { kind: mediaReceiptKind },
+                  };
+                },
+              };
+            },
+          },
+        },
       },
       config: {
         async loadConfig() {
@@ -220,6 +251,7 @@ async function main() {
   assert.equal(livePayload.accountProfile.profile, 'Builds careful product tests.');
   assert.equal(livePayload.pluginVersionStatus.status, 'latest');
   assert.equal(JSON.stringify(livePayload).includes('[object Object]'), false);
+  assert.equal(liveResult.details, undefined);
 
   const shareCardResult = await manageAccount.execute('tool_account_share_card', {
     accountId: 'moza',
@@ -232,9 +264,17 @@ async function main() {
   assert.equal(shareCardPayload.shareCard.variant, 'zh');
   assert.equal(shareCardPayload.shareCard.imageUrl, shareCard.imageUrl);
   assert.equal(shareCardPayload.shareCard.downloadUrl, shareCard.downloadUrl);
+  assert.match(shareCardPayload.shareCard.description, /当前聊天渠道发送/);
+  assert.match(shareCardPayload.shareCard.description, /不要下载/);
   assert.equal(shareCardPayload.publicIdentity.displayIdentity, 'Moza#MOZA');
   assert.equal(shareCardPayload.profile, 'Builds careful product tests.');
   assert.equal(JSON.stringify(shareCardPayload).includes('[object Object]'), false);
+  assert.equal(shareCardResult.details, undefined);
+  assert.equal(sentMedia.length, 1);
+  assert.equal(sentMedia[0].to, 'chat:test');
+  assert.equal(sentMedia[0].text, '');
+  assert.equal(sentMedia[0].mediaUrl, shareCard.imageUrl);
+  assert.equal(sentMedia[0].accountId, 'default');
 
   const updateIdentityResult = await manageAccount.execute('tool_account_update_display_name', {
     accountId: 'moza',
@@ -247,7 +287,25 @@ async function main() {
   assert.equal(updateIdentityPayload.publicIdentity.displayIdentity, 'Moza Prime#MOZA');
   assert.equal(updateIdentityPayload.shareCard.status, 'ready');
   assert.equal(updateIdentityPayload.shareCard.imageUrl, shareCard.imageUrl);
+  assert.match(updateIdentityPayload.shareCard.description, /当前聊天渠道发送/);
   assert.equal(JSON.stringify(updateIdentityPayload).includes('[object Object]'), false);
+  assert.equal(updateIdentityResult.details, undefined);
+  assert.equal(sentMedia.length, 2);
+  assert.equal(sentMedia[1].mediaUrl, shareCard.imageUrl);
+
+  mediaReceiptKind = 'text';
+  const fallbackResult = await manageAccount.execute('tool_account_share_card_text_fallback', {
+    accountId: 'moza',
+    action: 'view_account',
+    generateShareCard: true,
+    shareCardVariant: 'zh',
+  });
+  const fallbackPayload = JSON.parse(fallbackResult.content[0].text);
+  assert.equal(fallbackPayload.status, 'error');
+  assert.equal(fallbackPayload.tool, 'claworld_manage_account');
+  assert.equal(fallbackPayload.code, 'claworld_tool_execution_failed');
+  assert.equal(fallbackPayload.message, 'tool execution failed');
+  mediaReceiptKind = 'media';
 
   const feedbackResult = await manageAccount.execute('tool_feedback_submit', {
     accountId: 'moza',

@@ -57,6 +57,78 @@ import {
   withToolErrorBoundary,
 } from './register-tooling.js';
 
+function resolveShareCardToolResult(result) {
+  if (!Array.isArray(result?.content)) return null;
+  for (let index = 0; index < result.content.length; index += 1) {
+    const entry = result.content[index];
+    if (entry?.type !== 'text' || typeof entry.text !== 'string') continue;
+    try {
+      const payload = JSON.parse(entry.text);
+      const shareCard = normalizeObject(payload?.shareCard, null);
+      if (normalizeText(shareCard?.status, null) !== 'ready') continue;
+      const mediaUrl = normalizeText(
+        shareCard?.imageUrl,
+        normalizeText(shareCard?.downloadUrl, null),
+      );
+      if (!mediaUrl) continue;
+      return { index, entry, payload, shareCard, mediaUrl };
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+async function deliverShareCardToCurrentChannel(api, result, toolContext = {}) {
+  const resolved = resolveShareCardToolResult(result);
+  if (!resolved) return result;
+
+  const route = toolContext?.deliveryContext || {};
+  const channel = normalizeText(route.channel, normalizeText(toolContext?.messageChannel, null));
+  const to = normalizeText(route.to, null);
+  if (!channel || !to) {
+    throw new Error('share-card delivery requires an active channel route');
+  }
+
+  const loadAdapter = api?.runtime?.channel?.outbound?.loadAdapter;
+  if (typeof loadAdapter !== 'function') {
+    throw new Error('share-card delivery requires the OpenClaw channel outbound runtime');
+  }
+  const adapter = await loadAdapter(channel);
+  if (typeof adapter?.sendMedia !== 'function') {
+    throw new Error(`share-card delivery is unavailable for channel ${channel}`);
+  }
+
+  const deliveryResult = await adapter.sendMedia({
+    cfg: toolContext?.getRuntimeConfig?.() || toolContext?.runtimeConfig || api.config,
+    to,
+    text: '',
+    mediaUrl: resolved.mediaUrl,
+    ...(normalizeText(route.accountId, null) ? { accountId: normalizeText(route.accountId, null) } : {}),
+    ...(route.threadId != null ? { threadId: route.threadId } : {}),
+  });
+  if (deliveryResult?.success === false) {
+    throw new Error(`share-card delivery failed on channel ${channel}`);
+  }
+  const deliveryKind = normalizeText(deliveryResult?.receipt?.kind, null)?.toLowerCase();
+  if (deliveryKind && !['image', 'media'].includes(deliveryKind)) {
+    throw new Error(`share-card delivery did not produce native media on channel ${channel}`);
+  }
+
+  const content = [...result.content];
+  content[resolved.index] = {
+    ...resolved.entry,
+    text: JSON.stringify({
+      ...resolved.payload,
+      shareCard: {
+        ...resolved.shareCard,
+        description: '分享卡图片已通过当前聊天渠道发送给用户。请只用一句普通文本确认分享卡已生成；不要下载、再次发送或输出 MEDIA:。',
+      },
+    }, null, 2),
+  };
+  return { ...result, content };
+}
+
 function buildClaworldStatusRoute(plugin) {
   return {
     method: 'GET',
@@ -2441,11 +2513,24 @@ export function registerClaworldPluginFull(api, plugin) {
     const internalTools = new Map(
       buildRegisteredTools(api, plugin).map((tool) => [tool.name, tool]),
     );
-    for (const tool of createTerminalToolAdapters(api, plugin, internalTools).map((terminalTool) => ({
-      ...terminalTool,
-      execute: withToolErrorBoundary(terminalTool.name, terminalTool.execute),
-    }))) {
-      api.registerTool(tool);
+    for (const terminalTool of createTerminalToolAdapters(api, plugin, internalTools)) {
+      if (terminalTool.name === 'claworld_manage_account') {
+        api.registerTool(
+          (toolContext) => ({
+            ...terminalTool,
+            execute: withToolErrorBoundary(terminalTool.name, async (...args) => {
+              const result = await terminalTool.execute(...args);
+              return await deliverShareCardToCurrentChannel(api, result, toolContext);
+            }),
+          }),
+          { name: terminalTool.name },
+        );
+        continue;
+      }
+      api.registerTool({
+        ...terminalTool,
+        execute: withToolErrorBoundary(terminalTool.name, terminalTool.execute),
+      });
     }
   }
   return plugin;
