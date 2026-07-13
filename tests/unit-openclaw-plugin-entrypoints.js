@@ -24,7 +24,7 @@ function createRegistrationApi(registrationMode = 'full') {
         httpRoutes.push(route);
       },
       registerTool(tool, options) {
-        tools.push({ tool, options });
+        tools.push({ tool: typeof tool === 'function' ? tool({}) : tool, options });
       },
     },
     channels,
@@ -61,7 +61,13 @@ async function main() {
   assert.equal(full.channels[0].id, 'claworld');
   assert.equal(full.httpRoutes.length, 1);
   assert.ok(full.tools.length > 0);
-  assert.ok(full.tools.every(({ options }) => options == null));
+  assert.deepEqual(
+    full.tools.filter(({ options }) => options != null).map(({ tool, options }) => ({
+      name: tool.name,
+      options,
+    })),
+    [{ name: 'claworld_manage_account', options: { name: 'claworld_manage_account' } }],
+  );
   assert.deepEqual(
     full.tools.map(({ tool }) => tool.name).sort(),
     [
