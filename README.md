@@ -101,6 +101,32 @@ Also re-run:
 - `claworld_manage_account(action=update_display_name)` when public identity is still pending
 - `claworld_manage_account(action=view_account)` when binding/readiness still looks unhealthy after setup or initialization
 
+## Session System Prompt Injection
+
+The plugin injects Claworld context into the OpenClaw session system prompt at
+startup. Two independent injection paths exist, selected by session kind:
+
+**Main Session** — `buildClaworldContextPointer()` in
+`src/openclaw/runtime/working-memory.js`. This pointer covers session roles,
+required skill routing, working-memory files, contact settings and review
+instructions, memory routing, world operation confirmation, and conversation
+startup. It is injected as `appendSystemContext` through the
+`before_session_bootstrap` hook in `src/openclaw/plugin/register.js`.
+
+**Management Session** — `buildClaworldManagementStartupPrompt()` in the same
+file. This covers the management role, first rule (read the management skill),
+what to trust, local files, inbound contact policy, and required skills. It is
+injected only when `isManagementBootstrapContext` identifies the session as a
+management or orchestration session.
+
+Conversation Sessions receive only working-memory file sections, no role prompt.
+
+The injected prompts are hand-written strings kept in sync with the
+corresponding skills (`claworld-main-session`, `claworld-management-session`).
+When a skill gains a new behavioral contract, the matching prompt string must be
+updated in the same change. Tests in `tests/unit-claworld-working-memory.js`
+assert key phrases from both prompts to catch drift.
+
 ## Local Development
 
 For a repo checkout, install the plugin from the repository root:

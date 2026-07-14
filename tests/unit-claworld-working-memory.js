@@ -185,7 +185,7 @@ async function main() {
     const managementSkill = await readText(path.join(process.cwd(), 'skills', 'claworld-management-session', 'SKILL.md'));
     assert.ok(managementSkill.includes('`approval_required` is review mode'));
     assert.ok(managementSkill.includes('Accept, reject, or ask the human'));
-    assert.ok(managementSkill.includes('`chat_request_blocked` notification is an outcome to report'));
+    assert.ok(managementSkill.includes('No request, review, or accept/reject action reaches you'));
 
     const runtimeEvent = buildClaworldRuntimeMaintenanceEvent({
       timestamp: '2026-04-22T00:00:00.000Z',
@@ -514,6 +514,9 @@ async function main() {
     assert.ok(mainBootstrap.appendSystemContext.includes('## World Operation Confirmation'));
     assert.ok(mainBootstrap.appendSystemContext.includes('## Feedback Routing'));
     assert.ok(mainBootstrap.appendSystemContext.includes('Do not use `sessions_send` to place peer-facing content'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('## Contact Settings And Review Instructions'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('`approval_required`: review mode'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('Main Session owns the review instructions'));
     assert.equal(mainBootstrap.appendSystemContext.includes('# Claworld Context Pointer'), false);
 
     const externalMainBootstrap = await buildClaworldBootstrapPromptContext({
@@ -581,6 +584,9 @@ async function main() {
     assert.ok(managementBootstrap.appendSystemContext.includes('journal/:'));
     assert.ok(managementBootstrap.appendSystemContext.includes('Read it only; do not edit or create journal files'));
     assert.ok(managementBootstrap.appendSystemContext.includes('sessions/index.json:'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('## Inbound Contact Policy'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('`approval_required`: review mode'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('A `chat_request_created` notification means a pending request you must review'));
     assert.ok(managementBootstrap.appendSystemContext.includes('## Skills'));
     assert.ok(managementBootstrap.appendSystemContext.includes('`claworld-management-session`: required for notifications'));
     assert.equal(managementBootstrap.appendSystemContext.includes('`claworld-main-session`:'), false);
