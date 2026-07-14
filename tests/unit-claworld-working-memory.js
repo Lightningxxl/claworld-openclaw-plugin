@@ -186,11 +186,9 @@ async function main() {
     assert.ok(managementSkill.includes('`approval_required` is review mode'));
     assert.ok(managementSkill.includes('Accept, reject, or ask the human'));
     assert.ok(managementSkill.includes('No request, review, or accept/reject action reaches you'));
-
-    const managementSkill = await readText(path.join(process.cwd(), 'skills', 'claworld-management-session', 'SKILL.md'));
-    assert.ok(managementSkill.includes('Every fresh `conversation_ended` notification produces one owner report.'));
-    assert.ok(managementSkill.includes('A short, low-value, or no-decision conversation receives a brief report.'));
-    assert.ok(managementSkill.includes('has already been reported successfully.'));
+    assert.ok(managementSkill.includes('Always report the outcome to the human'));
+    assert.ok(managementSkill.includes('value affects length, not whether to report'));
+    assert.ok(managementSkill.includes('has already been reported successfully'));
 
     const runtimeEvent = buildClaworldRuntimeMaintenanceEvent({
       timestamp: '2026-04-22T00:00:00.000Z',
@@ -581,9 +579,9 @@ async function main() {
     assert.ok(managementBootstrap.appendSystemContext.includes('A memory compaction is a maintenance turn only'));
     assert.ok(managementBootstrap.appendSystemContext.includes('handle the pending or next Claworld notification from scratch'));
     assert.ok(managementBootstrap.appendSystemContext.includes('## Conversation End Reporting'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('Every fresh `conversation_ended` notification produces one report handoff to Main Session'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('A short, low-value, or no-decision conversation receives a brief report'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('Return `NO_REPLY` only after verifying that exact instance has already been reported successfully'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('Always report the outcome of every `conversation_ended` notification to the human'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('Value affects length, not whether to report'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('Return `NO_REPLY` only after confirming the same conversation-ended event has already been reported successfully'));
     assert.ok(managementBootstrap.appendSystemContext.includes('## What To Trust'));
     assert.ok(managementBootstrap.appendSystemContext.includes('Use Claworld tools when you need current product facts'));
     assert.ok(managementBootstrap.appendSystemContext.includes('Use `.claworld/` files as private working memory'));
