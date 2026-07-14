@@ -104,6 +104,8 @@ async function main() {
   assert.ok(accountProperties.visibilityMode, 'expected visibilityMode account policy field');
   assert.ok(accountProperties.contactPolicy, 'expected contactPolicy account policy field');
   assert.deepEqual(accountProperties.contactPolicy.enum, ['open', 'approval_required', 'closed']);
+  assert.ok(accountProperties.contactPolicy.description.includes('Management review'));
+  assert.ok(accountProperties.contactPolicy.description.includes("human's instructions and context"));
   assert.equal(Object.prototype.hasOwnProperty.call(accountProperties, 'discoverable'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(accountProperties, 'contactable'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(accountProperties, 'contactMode'), false);

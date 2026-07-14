@@ -703,7 +703,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             examples: ['public', 'unlisted', 'private'],
           }),
           contactPolicy: stringParam({
-            description: 'Inbound contact policy: open accepts eligible requests, approval_required keeps the request path open but requires review, closed blocks new inbound contact.',
+            description: 'Inbound contact policy: open auto-accepts eligible requests, approval_required routes pending requests to Management review using the human\'s instructions and context, and closed blocks new inbound requests.',
             enumValues: ['open', 'approval_required', 'closed'],
             examples: ['open', 'approval_required', 'closed'],
           }),

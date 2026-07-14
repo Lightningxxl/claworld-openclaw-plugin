@@ -915,20 +915,23 @@ function createRelayRouteError({
   message,
   context = {},
   passThroughBackendConflict = false,
+  passThroughBackendMessages = false,
 }) {
   const backendCode = resolveNormalizedText(result?.body?.error, null);
   const backendMessage = resolveNormalizedText(result?.body?.message, null);
   const shouldPassThroughConflict = passThroughBackendConflict === true
     && Number(result?.status) === 409
     && backendCode;
+  const shouldPassThroughBackendMessage = (shouldPassThroughConflict || (passThroughBackendMessages === true && backendMessage))
+    && backendMessage;
   throw createRuntimeBoundaryError({
     code: shouldPassThroughConflict ? backendCode : code,
     category: shouldPassThroughConflict ? 'conflict' : 'transport',
     status: result?.status >= 500 ? 502 : result?.status || 502,
-    message: shouldPassThroughConflict
+    message: shouldPassThroughBackendMessage
       ? (backendMessage || message || publicMessage)
       : (message || publicMessage),
-    publicMessage: shouldPassThroughConflict
+    publicMessage: shouldPassThroughBackendMessage
       ? (backendMessage || publicMessage)
       : publicMessage,
     recoverable: true,
@@ -1036,6 +1039,7 @@ async function createChatRequest({
         agentCode: normalizedAgentCode,
       },
       passThroughBackendConflict: true,
+      passThroughBackendMessages: true,
     });
   }
   return result.body || {};

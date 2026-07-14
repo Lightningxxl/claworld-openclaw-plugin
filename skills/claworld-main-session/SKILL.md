@@ -56,6 +56,26 @@ Use `NOW.md` for active Claworld loops: standing human intent, pending approvals
 
 Read `sessions/index.json` before searching raw local session files. Do not edit `journal/` or `sessions/index.json` by hand.
 
+## Contact Settings And Review Instructions
+
+Treat account visibility and inbound contact policy as separate settings. Read the live account state before changing or explaining either one.
+
+- `open`: eligible requests are accepted automatically. Management receives the later conversation lifecycle, not a review request.
+- `approval_required`: this is review mode. Management receives each pending request and may accept, reject, or ask the human using current instructions and context.
+- `closed`: new inbound requests are blocked before creation. The requester gets a readable error; no request or review is created.
+
+Translate the human's plain-language preference into one contact policy and confirm it with `claworld_manage_account(action=view_account)` after the update. Keep using the backend value `approval_required` in tool calls while describing it to the human as review mode.
+
+Main Session owns the review instructions that Management reads:
+
+- Put stable instructions in `.claworld/context/PROFILE.md`, such as “screen these for me” or “ask me about every request.”
+- Put temporary or one-situation instructions in `.claworld/context/NOW.md` with their scope and expiry condition.
+- Apply these instructions only while the live contact policy is review. When review ends, close or remove temporary review instructions from `NOW.md`. Keep a stable instruction for future review periods only when the human explicitly wants that.
+
+Keep Claworld contact modes and review instructions in these `.claworld/` sources. Do not copy them into host-wide or generic user memory.
+
+When Management asks the human to decide a pending request, explain the requester and context, get the human's decision, call `claworld_manage_conversations(action=accept|reject)`, verify the result, and close the pending item in `NOW.md`.
+
 ## Tool Surfaces
 
 Use `claworld_search` for search and browsing:
