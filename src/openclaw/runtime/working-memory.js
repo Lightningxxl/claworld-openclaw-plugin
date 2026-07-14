@@ -167,7 +167,7 @@ export function buildClaworldContextPointer(options = {}) {
     `- PROFILE.md: \`${artifacts.profile}\`: stable human preferences, boundaries, identity/background, and autonomy/contact policy.`,
     `- reports/: \`${artifacts.reports}/\`: local report artifacts and readable evidence summaries.`,
     `- journal/: \`${artifacts.journal}/\`: system-generated evidence about wakes, tools, routing, and delivery.`,
-    `- sessions/index.json: \`${artifacts.sessionsIndex}\`: Main, Management, and Conversation route/session hints.`,
+    `- sessions/index.json: \`${artifacts.sessionsIndex}\`: Main, Management, Conversation route/session hints, and indexed transcript episodes keyed by chatRequestId.`,
     '',
     'Read these files before treating an open Claworld loop as an ordinary chat todo. Read `sessions/index.json` before searching raw local session files. Do not edit `journal/` or `sessions/index.json` by hand.',
     '',
@@ -232,7 +232,16 @@ export function buildClaworldContextPointer(options = {}) {
     '- Use the language the human is currently using by default.',
     '- Explain the current state, next step, and risk in ordinary language.',
     '- Keep internal fields, schema names, and raw errors out of the main explanation. When a technical detail matters, translate it first, then include only the smallest useful original term.',
-    '- Read relevant skills when creating / managing worlds and profiles.'
+    '- Read relevant skills when creating / managing worlds and profiles.',
+    '',
+    '## Conversation Transcript Images',
+    '- When the human asks to find, export, quote, or show a prior Claworld conversation, treat it as a Claworld conversation lookup/render task. Read the `claworld-main-session` skill.',
+    '- Narrow candidates through recent reports, NOW.md, journal, and sessions/index.json, then use `claworld_manage_conversations(action=get_state|list_related)` and `localTranscriptEpisodes` when needed.',
+    '- Select a complete episode only by exact `chatRequestId`, then call `claworld_render_transcript_report(mode=stored, stored.chatRequestId=...)`. Never substitute conversationKey or localSessionKey.',
+    '- Stored rendering recovers public identity/world/profile context from the indexed kickoff. If the topic is clearer, add human-readable stored title/profile/speaker labels and keep internal ids out of those visible fields.',
+    '- Use `mode=manual` with ordered visible messages and timestamps for requested topic excerpts, highlights, summaries, or golden quotes.',
+    '- The renderer only generates local artifacts. After it returns, send at most the first three absolute PNG paths with the standard OpenClaw `message(action=send, media=...)` tool. If more than three pages were rendered, tell the human the total and that only the first three are included through the session\'s designated user-visible text path. Never paste paths or `MEDIA:` pseudo-references into user-visible text.',
+    '- PNG pages are the normal deliverable. Do not expose backend commands, routing/tool/system noise, NO_REPLY, raw JSON, secrets, SVG, BubbleSpec, or local paths in an ordinary human-facing response.'
   ].join('\n');
 }
 
@@ -282,7 +291,7 @@ function buildClaworldManagementStartupPrompt(options = {}) {
     `- NOW.md: \`${artifacts.now}\`: active goals, open loops, pending approvals, retry items, and short pointers.`,
     `- reports/: \`${artifacts.reports}/\`: local report artifacts and readable evidence summaries.`,
     `- journal/: \`${artifacts.journal}/\`: system-generated evidence. Read it only; do not edit or create journal files.`,
-    `- sessions/index.json: \`${artifacts.sessionsIndex}\`: Main, Management, and Conversation route/session hints. Read it before routing or transcript lookup.`,
+    `- sessions/index.json: \`${artifacts.sessionsIndex}\`: Main, Management, Conversation route/session hints, and transcript episodes keyed by chatRequestId. Read it before routing or transcript lookup.`,
     '',
     '## Skills',
     '- `claworld-management-session`: required for notifications, reporting, lifecycle handling, review questions, proactive management, dedupe, and local working-memory rules.',

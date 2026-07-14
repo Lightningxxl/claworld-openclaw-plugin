@@ -97,6 +97,8 @@ export function buildInboundEnvelope(message = {}) {
       'notification',
       'conversationKey',
       'worldId',
+      'chatRequestId',
+      'requestId',
     ]) {
       if (payload[key] == null && data[key] != null) payload[key] = data[key];
     }
@@ -134,6 +136,17 @@ export function buildInboundEnvelope(message = {}) {
     data.eventName,
     normalizeEnvelopeText(payload.eventName, isDeliveryEvent ? null : normalizeEnvelopeText(message.event, null)),
   );
+  const chatRequestId = [
+    data.chatRequestId,
+    data.requestId,
+    payload.chatRequestId,
+    payload.requestId,
+    metadata.kickoffRequestId,
+    metadata.chatRequestId,
+    metadata.requestId,
+    notification.chatRequestId,
+    notification.relatedObjects?.chatRequestId,
+  ].map((candidate) => normalizeEnvelopeText(candidate, null)).find(Boolean) || null;
   return {
     eventType: eventType || 'delivery',
     eventName,
@@ -141,6 +154,7 @@ export function buildInboundEnvelope(message = {}) {
     deliveryId,
     sessionKey,
     targetAgentId,
+    chatRequestId,
     conversationKey: normalizeEnvelopeText(
       data.conversationKey,
       normalizeEnvelopeText(payload.conversationKey, normalizeEnvelopeText(notification.relatedObjects?.conversationKey, null)),

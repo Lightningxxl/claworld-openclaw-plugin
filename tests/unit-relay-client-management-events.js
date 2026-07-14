@@ -136,4 +136,18 @@ const deliveryWrappedManagement = buildInboundEnvelope({
 assert.equal(deliveryWrappedManagement.eventType, 'delivery');
 assert.equal(deliveryWrappedManagement.sessionKey, 'management:agt_ff4');
 
+const directChatRequestEnvelope = buildInboundEnvelope({
+  event: 'delivery',
+  data: {
+    eventType: 'delivery',
+    chatRequestId: 'req_direct_transcript',
+    sessionKey: 'conversation:agt_ff4:agt_peer',
+    payload: {
+      commandText: 'Reply to the peer.',
+    },
+  },
+});
+assert.equal(directChatRequestEnvelope.chatRequestId, 'req_direct_transcript');
+assert.equal(directChatRequestEnvelope.payload.chatRequestId, 'req_direct_transcript');
+
 console.log('PASS unit-relay-client-management-events');

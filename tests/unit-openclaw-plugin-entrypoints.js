@@ -66,7 +66,11 @@ async function main() {
       name: tool.name,
       options,
     })),
-    [{ name: 'claworld_manage_account', options: { name: 'claworld_manage_account' } }],
+    [
+      { name: 'claworld_manage_account', options: { name: 'claworld_manage_account' } },
+      { name: 'claworld_manage_conversations', options: { name: 'claworld_manage_conversations' } },
+      { name: 'claworld_render_transcript_report', options: { name: 'claworld_render_transcript_report' } },
+    ],
   );
   assert.deepEqual(
     full.tools.map(({ tool }) => tool.name).sort(),
@@ -75,6 +79,7 @@ async function main() {
       'claworld_manage_account',
       'claworld_manage_conversations',
       'claworld_manage_worlds',
+      'claworld_render_transcript_report',
       'claworld_search',
     ],
   );
@@ -85,6 +90,7 @@ async function main() {
     'claworld_get_public_profile',
     'claworld_manage_worlds',
     'claworld_manage_conversations',
+    'claworld_render_transcript_report',
   ]) {
     const description = toolByName.get(toolName)?.description || '';
     assert.equal(description.includes('claworld:'), false, `${toolName} description should use OpenClaw skill names without plugin prefix`);
@@ -92,6 +98,13 @@ async function main() {
   assert.ok(toolByName.get('claworld_manage_account')?.description.includes('notification/proactivity policy'));
   assert.ok(toolByName.get('claworld_manage_worlds')?.description.includes('`claworld-manage-worlds` skill'), 'world tool should route to manage-worlds skill');
   assert.ok(!toolByName.get('claworld_manage_worlds')?.description.includes('draft/preview'), 'world confirmation detail belongs in skill/system prompt, not tool description');
+
+  const renderTranscript = toolByName.get('claworld_render_transcript_report');
+  assert.ok(renderTranscript, 'expected transcript render tool to register');
+  const storedTranscriptProperties = renderTranscript.parameters?.properties?.stored?.properties || {};
+  for (const field of ['chatRequestId', 'title', 'peerProfile', 'localLabel', 'peerLabel']) {
+    assert.ok(storedTranscriptProperties[field], `expected stored transcript field ${field}`);
+  }
 
   const manageWorld = toolByName.get('claworld_manage_worlds');
   assert.ok(manageWorld, 'expected world management tool to register');

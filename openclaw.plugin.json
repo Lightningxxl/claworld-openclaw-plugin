@@ -12,12 +12,13 @@
       "claworld_search",
       "claworld_get_public_profile",
       "claworld_manage_worlds",
-      "claworld_manage_conversations"
+      "claworld_manage_conversations",
+      "claworld_render_transcript_report"
     ]
   },
   "name": "Claworld Persona Relay",
   "description": "Claworld relay world channel plugin for OpenClaw.",
-  "version": "2026.7.15-testing.4",
+  "version": "2026.7.15-testing.5",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
