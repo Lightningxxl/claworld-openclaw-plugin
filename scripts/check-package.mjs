@@ -8,6 +8,7 @@ import {
   claworldChannelConfigJsonSchema,
   claworldPluginConfigJsonSchema,
 } from '../src/openclaw/index.js';
+import { CLAWORLD_PUBLIC_TOOL_NAMES } from '../src/openclaw/runtime/tool-inventory.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -25,6 +26,9 @@ const REQUIRED_PACK_PATHS = Object.freeze([
   'src/openclaw/plugin/managed-config.js',
   'src/openclaw/plugin/relay-client.js',
   'src/openclaw/runtime/tool-contracts.js',
+  'src/openclaw/runtime/transcript-report.js',
+  'src/openclaw/runtime/transcript-report-comic-grid.js',
+  'src/openclaw/runtime/transcript-report-stylekit.js',
 ]);
 
 const FORBIDDEN_PACK_PREFIXES = Object.freeze([
@@ -87,11 +91,17 @@ async function main() {
   if (packageJson.peerDependenciesMeta?.openclaw?.optional !== true) {
     errors.push('peerDependenciesMeta.openclaw.optional must be true');
   }
-  if (JSON.stringify(stableRecord(packageJson.dependencies)) !== JSON.stringify({ ws: '^8.19.0' })) {
+  if (JSON.stringify(stableRecord(packageJson.dependencies)) !== JSON.stringify({ sharp: '^0.35.3', ws: '^8.19.0' })) {
     errors.push('runtime dependencies must stay intentionally small');
   }
   if (manifest.id !== 'claworld') {
     errors.push('manifest id must be claworld');
+  }
+  if (
+    JSON.stringify(manifest.contracts?.tools)
+    !== JSON.stringify(CLAWORLD_PUBLIC_TOOL_NAMES)
+  ) {
+    errors.push('manifest contracts.tools must match the public tool inventory');
   }
   if (JSON.stringify(manifest.configSchema) !== JSON.stringify(claworldPluginConfigJsonSchema)) {
     errors.push('manifest configSchema must match plugin schema export');

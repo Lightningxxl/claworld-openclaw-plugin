@@ -43,6 +43,7 @@ import {
   appendClaworldJournalEvent,
   buildClaworldRuntimeMaintenanceEvent,
 } from '../runtime/working-memory.js';
+import { recordClaworldTranscriptEpisode } from '../runtime/transcript-report.js';
 import {
   broadcastModeratedWorld,
   createModeratedWorld,
@@ -2396,8 +2397,14 @@ function buildInboundRuntimeMaintenanceEvent({
   const requestId = resolveNormalizedText(
     delivery.chatRequestId,
     resolveNormalizedText(
-      metadata.kickoffRequestId,
-      resolveNormalizedText(metadata.requestId, resolveNormalizedText(metadata.chatRequestId, null)),
+      payload.chatRequestId,
+      resolveNormalizedText(
+        payload.requestId,
+        resolveNormalizedText(
+          metadata.kickoffRequestId,
+          resolveNormalizedText(metadata.requestId, resolveNormalizedText(metadata.chatRequestId, null)),
+        ),
+      ),
     ),
   );
   const worldId = resolveNormalizedText(
@@ -2511,6 +2518,7 @@ function createDeliveryReplyDispatcher({
   let suppressed = false;
   let replyTransport = null;
   let replyFallbackUsed = false;
+  let submittedReplyText = null;
   let keptSilentTransport = null;
   let keptSilentFallbackUsed = false;
   const finalTexts = [];
@@ -2694,6 +2702,7 @@ function createDeliveryReplyDispatcher({
     const replyResult = await submitRelayReply(normalized);
     replyTransport = replyResult?.transport || null;
     replyFallbackUsed = replyResult?.fallbackUsed === true;
+    submittedReplyText = normalized;
     replied = true;
     return true;
   };
@@ -2851,6 +2860,7 @@ function createDeliveryReplyDispatcher({
     markDispatchIdle,
     didReply: () => replied,
     didKeepSilent: () => keptSilent,
+    getSubmittedReplyText: () => submittedReplyText,
     submitMessageToolReply,
     getRuntimeOutputSummary: () => ({
       counts: { ...runtimeOutputSummary.counts },
@@ -2898,6 +2908,7 @@ async function runDeliveryReplyDispatch({
     markDispatchIdle,
     didReply,
     didKeepSilent,
+    getSubmittedReplyText,
     submitMessageToolReply,
     getRuntimeOutputSummary,
   } = createDeliveryReplyDispatcher({
@@ -2964,6 +2975,7 @@ async function runDeliveryReplyDispatch({
     dispatchResult,
     replied: didReply(),
     keptSilent: didKeepSilent(),
+    replyText: getSubmittedReplyText(),
     runtimeOutputSummary: getRuntimeOutputSummary(),
   };
 }
@@ -3035,12 +3047,21 @@ export async function maybeBridgeRuntimeInboundEvent({
   );
   const commandText = resolveNormalizedText(payload.commandText, incomingText);
   const fromAgentId = resolveNormalizedText(metadata.fromAgentId, null);
-  const chatRequestId = resolveNormalizedText(
-    delivery.chatRequestId,
-    resolveNormalizedText(metadata.chatRequestId, resolveNormalizedText(payload.chatRequestId, null)),
-  );
   const isRelayDelivery = eventType === 'delivery';
   const allowReply = metadata.allowReply === true || (isRelayDelivery && metadata.allowReply !== false);
+  const chatRequestId = resolveNormalizedText(
+    delivery.chatRequestId,
+    resolveNormalizedText(
+      payload.chatRequestId,
+      resolveNormalizedText(
+        payload.requestId,
+        resolveNormalizedText(
+          metadata.kickoffRequestId,
+          resolveNormalizedText(metadata.requestId, resolveNormalizedText(metadata.chatRequestId, null)),
+        ),
+      ),
+    ),
+  );
 
   if (
     !runtime?.channel?.reply?.finalizeInboundContext
@@ -3246,6 +3267,7 @@ export async function maybeBridgeRuntimeInboundEvent({
     dispatchResult,
     replied,
     keptSilent,
+    replyText,
     runtimeOutputSummary,
   } = await runDeliveryReplyDispatch({
     runtime,
@@ -3295,6 +3317,7 @@ export async function maybeBridgeRuntimeInboundEvent({
       dispatchResult,
       replied,
       keptSilent,
+      replyText,
       runtimeOutputSummary,
     } = await runDeliveryReplyDispatch({
       runtime,
@@ -3336,6 +3359,40 @@ export async function maybeBridgeRuntimeInboundEvent({
         sessionKey,
         error: error?.message || String(error),
       });
+    }
+
+    if (isRelayDelivery) {
+      if (chatRequestId) {
+        try {
+          await recordClaworldTranscriptEpisode(workspaceRoot, {
+            chatRequestId,
+            deliveryId,
+            localSessionKey,
+            relaySessionKey: sessionKey,
+            conversationKey: resolveNormalizedText(metadata.conversationKey, resolveNormalizedText(delivery.conversationKey, null)),
+            worldId,
+            targetAgentId: resolveNormalizedText(delivery.targetAgentId, resolveNormalizedText(payload.targetAgentId, null)),
+            fromAgentId,
+            fromAgentCode: metadata.fromAgentCode,
+            fromDisplayIdentity: metadata.fromDisplayIdentity,
+            localAgentId,
+            deliveryType: metadata.deliveryType,
+            commandText,
+            contextText,
+            untrustedContext: payload.untrustedContext,
+            createdAt: delivery.createdAt || metadata.createdAt || payload.createdAt || null,
+            turnCreatedAt: delivery.turnCreatedAt || metadata.turnCreatedAt || payload.turnCreatedAt || null,
+            replyText,
+          });
+        } catch (error) {
+          logger.warn?.(`[claworld:${runtimeAccountId}] transcript episode indexing failed`, {
+            deliveryId,
+            chatRequestId,
+            sessionKey,
+            error: error?.message || String(error),
+          });
+        }
+      }
     }
   }
 

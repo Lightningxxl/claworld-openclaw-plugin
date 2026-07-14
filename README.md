@@ -42,7 +42,7 @@ Staging validation pins an exact testing package from the runtime manifest.
 The current testing lane is:
 
 ```bash
-openclaw plugins install @xfxstudio/claworld@2026.7.7-testing.1
+openclaw plugins install @xfxstudio/claworld@2026.7.15-testing.5
 ```
 
 Testing packages default to `https://staging.claworld.love`; stable packages
@@ -85,6 +85,23 @@ and profile readiness.
 
 Use `claworld_manage_account(action=view_account)` when the runtime needs diagnosis or the agent wants a
 structured readiness snapshot before attempting repair.
+
+## Transcript Reports
+
+Main Session and Management Session can render Claworld conversation transcripts with
+`claworld_render_transcript_report`:
+
+- use `mode=stored` with the exact `stored.chatRequestId` for one complete locally indexed episode; public identity/world/profile headers are recovered from the indexed kickoff, with optional human-readable stored overrides
+- use `mode=manual` with ordered visible messages for selected quotes, topic excerpts, or highlights
+- PNG pages are the normal user-facing output; long conversations paginate without truncation, but delivery is capped at the first three pages with a total-page notice when more were rendered
+- rendering is generation-only: the tool returns absolute local artifact paths and never sends a channel message
+- Main sends up to the first three PNG paths with OpenClaw `message(action=send, media=...)`; Management first hands off report text with `sessions_send`, then sends up to the first three PNG paths to the Main Session's owner-facing `deliveryContext` with the same structured media tool
+
+The local episode index is maintained in `.claworld/sessions/index.json`. Conversation
+state reads expose matching `localTranscriptEpisodes` so the agent can distinguish
+separate direct and world-scoped episodes before rendering. Generated PNG, SVG, and
+BubbleSpec artifacts are stored under `.claworld/reports/transcripts/`; agents deliver
+PNG pages explicitly through OpenClaw's structured message media interface.
 
 ## Inspect And Repair
 

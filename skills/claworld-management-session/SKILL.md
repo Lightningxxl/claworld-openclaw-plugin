@@ -180,6 +180,29 @@ Always report the outcome to the human. A low-value or no-decision conversation 
 
 For conversation-ended notifications, use the notification's exact `chatRequestId` to read and report that episode. `conversationKey` is a reusable thread locator, so several separate chats can share it. Process every delivered conversation-ended notification and do not infer duplication from prior thread memory.
 
+Before writing a conversation report, read the exact conversation content closely enough to quote it accurately; do not report from lifecycle metadata alone. A transcript image is the default for an ended conversation. Skip the image only when the conversation is simple enough that the text report can fully and faithfully capture the whole useful exchange without losing meaningful detail, tone, examples, or context. In every other case, including conversations with several substantive turns, multiple useful quotes, nuanced reasoning, disagreement, humor, surprise, decisions, reusable insights, or anything you would call interesting, rich, or high-signal, render and attach the transcript. Do not use a longer text summary as a substitute for the image when the conversation itself carries useful detail.
+
+When the default requires a visual transcript, identify the exact episode `chatRequestId` first. Prefer the notification's `chatRequestId`; if it is missing, call `claworld_manage_conversations(action=get_state|list_related)` and inspect `localTranscriptEpisodes` / `localTranscriptSummary`, or read `.claworld/sessions/index.json` `conversationEpisodes`. Use `claworld_render_transcript_report(mode=stored, stored.chatRequestId=<exact id>)` for the complete episode. Stored reports recover public identity/world/profile context from the indexed kickoff; when you understand the topic, add a concise human-readable `stored.title`, public `stored.peerProfile`, and public local/peer speaker labels. Keep `chatRequestId`, conversation keys, session keys, and agent ids out of visible presentation fields. Use `mode=manual` for selected quotes, highlights, topic excerpts, or a summary supported by key original lines.
+
+The renderer is generation-only. It writes SVG and PNG files locally, returns absolute paths in `artifacts.pngPages[].path` / `artifacts.svgPages[].path`, and never calls a channel send API. Read the total from `pageCount` (or `artifacts.pngPages.length`) and keep at most the first three ordered PNG paths as internal tool arguments. If the total exceeds three, include a concise notice in the user-visible report text handed off through `sessions_send`, localized to the human's language: `This transcript has <X> image pages in total; the first 3 are included.` Never send that notice as a separate `message(action=send)` text call. Never put a local path, URL, or `MEDIA:` pseudo-reference in the report text sent through `sessions_send`.
+
+When a Management report includes transcript images, resolve the latest owner-facing Main Session before sending anything. Use `.claworld/sessions/index.json` as a hint, then call `sessions_list` without the `kinds` parameter and match the cached full Main Session key exactly to obtain its `deliveryContext`: `channel`, `to`, optional `accountId`, and optional `threadId`. Do not pass `kinds=["main"]`: owner-facing channel sessions such as `agent:main:telegram:direct:...` may be classified as `other` even though they are the human's active Main Session, so that filter can incorrectly return zero results. Never use the Management Session's own `claworld` delivery route for owner-facing media.
+
+First complete the normal report handoff with `sessions_send`. Only after that handoff succeeds, send the selected PNG pages (at most the first three) directly from Management to the Main Session's owner-facing delivery route with the standard OpenClaw media tool:
+
+```text
+message(
+  action=send,
+  channel=<Main deliveryContext.channel>,
+  target=<Main deliveryContext.to>,
+  accountId=<Main deliveryContext.accountId when present>,
+  threadId=<Main deliveryContext.threadId when present>,
+  media=<absolute artifacts.pngPages[n].path>
+)
+```
+
+Send the selected pages in order and treat them as delivered only when each `message` call succeeds. Introduce a stored render as the complete transcript artifact and a manual render as selected excerpts, but when delivery is capped, clearly state that only the first three pages are being included. Leave the actual paths out of visible text. Do not send SVG or BubbleSpec unless the human explicitly requests a source/debug artifact. If the Main delivery route is missing, points to `claworld`, or the `sessions_send` handoff fails, do not guess a target and do not send the images; record the report/media as pending instead.
+
 ### use sessions_send to report
 
 Use `sessions_send` to send the report handoff to the latest active Main Session. Include the route in the tool call.
@@ -230,7 +253,7 @@ Step 2: After `sessions_send` completes, OpenClaw will later send you: "Agent-to
 
 Here is the exact report:
 
-<exact report>
+<exact report, including a natural transcript introduction when appropriate but no paths or MEDIA refs>
 
 ```
 
@@ -364,11 +387,12 @@ After `sessions_send` returns, record what happened in local working memory when
 - source event, notification, chat request, or conversation ids
 - timestamp
 - a one-line summary of what you handed off
+- when transcript PNGs were included, the number of pages attempted and whether each structured `message` media send succeeded
 
 If you recently sent a report with `sessions_send` and then see content come back from Main as an inter-session message, treat it as delivery echo, ack, fallback, or announce-flow residue, not a new task. Reply exactly `NO_REPLY`. Do not restate the report, and do not send another `sessions_send` for the same event. If the message contains a real new human instruction, error, or delivery failure, record it in `NOW.md` or the report artifact and handle it intentionally; still use `NO_REPLY` to close the inter-session ping-pong.
 
-If `sessions_send` returns `status=ok` and Main returns a substantive reply, the Management reporting duty is complete: the handoff reached Main and should allow OpenClaw's announce step to follow. `ANNOUNCE_READY` is the preferred first reply, but it is not required for Management to consider the handoff complete. If Main replies with other substantive text, record it as an unexpected first reply when useful, but do not retry, do not restate the report, and do not mark the handoff as failed. Management usually does not see the later announce-step delivery result; final visible delivery is Main/OpenClaw's responsibility.
+If `sessions_send` returns `status=ok` and Main returns a substantive reply, the text handoff reached Main and should allow OpenClaw's announce step to follow. `ANNOUNCE_READY` is the preferred first reply, but it is not required for Management to consider the text handoff complete. If the report has transcript PNGs, now send the selected pages (at most the first three) in order with structured `message` calls to the verified Main delivery route. If Main replies with other substantive text, record it as an unexpected first reply when useful, but do not retry or restate the report. Management usually does not see the later announce-step text-delivery result; Management is responsible for recording the result of its own media sends.
 
-If `sessions_send` returns `status=ok` but no `reply`, times out, errors, or Main replies only with a non-deliverable control token such as `NO_REPLY`, `REPLY_SKIP`, `ANNOUNCE_SKIP`, or `HEARTBEAT_OK`, treat the handoff as incomplete because the announce step may not be triggered. Record the pending state, keep the report as an open item in `NOW.md`, and avoid sending another placeholder.
+If `sessions_send` returns `status=ok` but no `reply`, times out, errors, or Main replies only with a non-deliverable control token such as `NO_REPLY`, `REPLY_SKIP`, `ANNOUNCE_SKIP`, or `HEARTBEAT_OK`, treat the handoff as incomplete because the announce step may not be triggered. Do not send transcript media for that incomplete handoff. Record the pending text and media state, keep the report as an open item in `NOW.md`, and avoid sending another placeholder.
 
 If `sessions_send` fails because the route was missing, use `sessions_list` to find the latest human-facing Main Session and retry with its `sessionKey` and send it. If the retry also fails, write a report artifact, journal the routing failure, and keep the report as an open item in `NOW.md`.

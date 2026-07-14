@@ -25,6 +25,10 @@ import {
   updateClaworldSessionDirectory,
 } from '../runtime/working-memory.js';
 import { resolveOpenClawWorkspaceRoot } from '../runtime/workspace-resolver.js';
+import {
+  augmentConversationPayloadWithLocalTranscriptIndex,
+  renderTranscriptReport,
+} from '../runtime/transcript-report.js';
 import { setClaworldRuntime } from './runtime.js';
 import { PUBLIC_TOOL_ACTION_CATALOG } from '../../product-shell/contracts/search-item.js';
 import {
@@ -127,6 +131,23 @@ async function deliverShareCardToCurrentChannel(api, result, toolContext = {}) {
     }, null, 2),
   };
   return { ...result, content };
+}
+
+async function resolveTranscriptWorkspace(api, params = {}, toolContext = {}) {
+  const cfg = await loadCurrentConfig(api);
+  const agentId = normalizeText(
+    toolContext?.agentId,
+    normalizeText(toolContext?.context?.agentId, normalizeText(params.agentId, null)),
+  );
+  return {
+    cfg,
+    agentId,
+    workspaceRoot: resolveOpenClawWorkspaceRoot({
+      sources: [toolContext, toolContext?.context, params],
+      config: cfg,
+      agentId,
+    }),
+  };
 }
 
 function buildClaworldStatusRoute(plugin) {
@@ -652,6 +673,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
   const searchTool = 'claworld_search';
   const manageWorldsTool = 'claworld_manage_worlds';
   const manageConversationsTool = 'claworld_manage_conversations';
+  const renderTranscriptTool = 'claworld_render_transcript_report';
   const accountTool = 'claworld_manage_account';
   const publicProfileTool = 'claworld_get_public_profile';
 
@@ -1404,7 +1426,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           }),
         },
       }),
-      async execute(toolCallId, params = {}) {
+      async execute(toolCallId, params = {}, toolContext = {}) {
         const action = normalizeTerminalConversationAction(params.action, 'list_related', { throwOnInvalid: true });
         if (action === 'request') {
           const context = await resolveToolContext(api, plugin, params, {
@@ -1434,7 +1456,16 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             action: 'list',
             ...(Object.keys(filters).length > 0 ? { filters } : {}),
           });
-          return rewriteToolResultName(result, manageConversationsTool, action);
+          const rewritten = rewriteToolResultName(result, manageConversationsTool, action);
+          const payload = parseToolResultPayload(rewritten);
+          if (!payload) return rewritten;
+          const { workspaceRoot } = await resolveTranscriptWorkspace(api, params, toolContext);
+          const augmented = await augmentConversationPayloadWithLocalTranscriptIndex({
+            workspaceRoot,
+            payload,
+            filters,
+          });
+          return buildToolResult(augmented);
         }
         if (action === 'accept' || action === 'reject') {
           const result = await requireTerminalTool(internalTools, 'claworld_chat_inbox').execute(toolCallId, {
@@ -1463,6 +1494,101 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
         }
         requireManageWorldField('action', `action must be one of ${TERMINAL_CONVERSATION_ACTIONS.join(', ')}`);
         return buildToolResult({ status: 'error', tool: manageConversationsTool });
+      },
+    },
+    {
+      name: renderTranscriptTool,
+      label: 'Claworld Render Transcript Report',
+      description: 'Generate local transcript artifacts only; this tool never sends a channel message. Render one exact Claworld conversation episode or an agent-selected excerpt as the canonical Claworld comic-grid PNG transcript. Use mode=stored with stored.chatRequestId for a complete indexed episode. Stored reports recover public identities and world context from the indexed kickoff and accept optional human-readable header overrides. Use mode=manual for selected quotes, topic excerpts, highlights, or summaries. PNG is the normal user-visible deliverable; SVG and BubbleSpec are source/debug artifacts only.',
+      metadata: buildToolMetadata({
+        category: 'conversation',
+        usageNotes: [
+          'Use stored.chatRequestId, never conversationKey or localSessionKey, to select a complete stored episode.',
+          'Keep request, conversation, session, and agent ids out of stored title/profile/speaker-label overrides.',
+          'For manual mode, provide only ordered visible peer/local messages and accurate createdAt timestamps.',
+          'This tool only writes local artifacts and returns absolute paths. It never sends a channel message.',
+          'After rendering, send at most the first three artifacts.pngPages[].path values with OpenClaw message(action=send, media=...).',
+          'If pageCount exceeds three, tell the human the total and that only the first three are included. Main uses its normal assistant response; Management includes the notice in the sessions_send report text.',
+          'Management Session should hand off report text with sessions_send first, then send the selected PNG paths to the Main Session deliveryContext with message(action=send).',
+        ],
+      }),
+      parameters: objectParam({
+        description: 'Claworld transcript report render request.',
+        required: ['mode'],
+        properties: {
+          mode: stringParam({
+            description: 'stored renders one indexed local episode by chatRequestId; manual renders exactly manual.messages.',
+            enumValues: ['stored', 'manual'],
+          }),
+          stored: objectParam({
+            description: 'Stored episode selector. Provide only with mode=stored.',
+            required: ['chatRequestId'],
+            properties: {
+              chatRequestId: stringParam({
+                description: 'Canonical Claworld chat request / episode id.',
+                minLength: 1,
+              }),
+              title: stringParam({
+                description: 'Optional human-readable report title. Defaults to public peer/world context from the indexed kickoff.',
+                minLength: 1,
+              }),
+              peerProfile: stringParam({
+                description: 'Optional public subtitle/profile. Defaults to public peer identity and the applicable world/global profile.',
+                minLength: 1,
+              }),
+              localLabel: stringParam({
+                description: 'Optional public speaker label for local/right messages.',
+                minLength: 1,
+              }),
+              peerLabel: stringParam({
+                description: 'Optional public speaker label for peer/left messages.',
+                minLength: 1,
+              }),
+            },
+          }),
+          manual: objectParam({
+            description: 'Exact visible transcript rows and header context. Provide only with mode=manual.',
+            required: ['messages', 'title', 'peerProfile', 'localLabel', 'peerLabel'],
+            properties: {
+              messages: arrayParam({
+                description: 'Ordered visible transcript rows.',
+                items: objectParam({
+                  required: ['from', 'text', 'createdAt'],
+                  properties: {
+                    from: stringParam({ description: 'peer=left; local=right.', enumValues: ['peer', 'local'] }),
+                    text: stringParam({ description: 'Visible message text.', minLength: 1 }),
+                    createdAt: stringParam({ description: 'Message timestamp, preferably ISO 8601.', minLength: 1 }),
+                  },
+                }),
+              }),
+              title: stringParam({ description: 'Report header title.', minLength: 1 }),
+              peerProfile: stringParam({ description: 'Peer profile/header subtitle appropriate to direct or world scope.', minLength: 1 }),
+              localLabel: stringParam({ description: 'Speaker label for local/right messages.', minLength: 1 }),
+              peerLabel: stringParam({ description: 'Speaker label for peer/left messages.', minLength: 1 }),
+            },
+          }),
+          style: stringParam({
+            description: 'Optional visual style. Defaults to the Hermes-compatible Claworld comic grid.',
+            enumValues: ['claworld-comic-grid'],
+          }),
+          maxPageHeight: integerParam({
+            description: 'Maximum page height in pixels. Defaults to 2000. Long transcripts paginate without truncation.',
+            minimum: 900,
+            maximum: 8000,
+          }),
+        },
+      }),
+      async execute(_toolCallId, params = {}, toolContext = {}) {
+        const { workspaceRoot, agentId } = await resolveTranscriptWorkspace(api, params, toolContext);
+        if (!workspaceRoot) {
+          throw new Error('unable to resolve the active OpenClaw workspace for transcript rendering');
+        }
+        const report = await renderTranscriptReport({
+          workspaceRoot,
+          localAgentId: agentId,
+          args: params,
+        });
+        return buildToolResult({ ...report, tool: renderTranscriptTool });
       },
     },
   ];
@@ -2517,6 +2643,22 @@ export function registerClaworldPluginFull(api, plugin) {
               const result = await terminalTool.execute(...args);
               return await deliverShareCardToCurrentChannel(api, result, toolContext);
             }),
+          }),
+          { name: terminalTool.name },
+        );
+        continue;
+      }
+      if (
+        terminalTool.name === 'claworld_manage_conversations'
+        || terminalTool.name === 'claworld_render_transcript_report'
+      ) {
+        api.registerTool(
+          (toolContext) => ({
+            ...terminalTool,
+            execute: withToolErrorBoundary(
+              terminalTool.name,
+              async (...args) => await terminalTool.execute(...args, toolContext),
+            ),
           }),
           { name: terminalTool.name },
         );
