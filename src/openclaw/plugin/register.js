@@ -1152,7 +1152,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           joinPolicy: stringParam({ description: 'Owner-defined join policy.', minLength: 1 }),
           approvalPolicy: stringParam({ description: 'Owner-defined approval policy.', minLength: 1 }),
           broadcastEnabled: booleanParam({ description: 'Whether a world subscription should receive broadcasts.' }),
-          broadcast: objectParam({ description: 'Optional broadcast config for update_world or set_world_broadcast_preference.', additionalProperties: true }),
+          broadcast: objectParam({ description: 'Owner broadcast capability config for update_world only (enabled, audience, replyPolicy, excludeSelf). Not for set_world_broadcast_preference.', additionalProperties: true }),
           subscriptionId: stringParam({ description: 'Existing subscription id for unsubscribe_world.', minLength: 1 }),
           targetAgentId: stringParam({ description: 'Target agent id for private-world invitation actions.', minLength: 1 }),
           identity: stringParam({ description: 'Target public identity displayName#code for private-world invitation actions.', minLength: 1 }),
@@ -1219,14 +1219,9 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             ...context,
             worldId,
             limit: params.limit ?? null,
+            ...(action === 'list_broadcast_history' ? { activityType: 'world_broadcast_published' } : {}),
           });
-          const filteredPayload = action === 'list_broadcast_history' && Array.isArray(payload?.items)
-            ? {
-                ...payload,
-                items: payload.items.filter((item) => /broadcast/i.test(String(item.activityType || item.type || ''))),
-              }
-            : payload;
-          return buildTerminalActionResult({ tool: manageWorldsTool, action, payload: filteredPayload });
+          return buildTerminalActionResult({ tool: manageWorldsTool, action, payload });
         }
         if (action === 'manage_members') {
           const worldId = normalizeText(params.worldId, null);
@@ -1497,7 +1492,7 @@ function buildRegisteredTools(api, plugin) {
   const broadcastAudienceValues = ['members', 'admins', 'admins_and_owner'];
   const broadcastReplyPolicyValues = ['zero', 'at_most_one'];
   const broadcastConfigProperty = objectParam({
-    description: 'Optional world broadcast config for owner update_context. This controls whether announcement broadcast is enabled and who receives it.',
+    description: 'Owner broadcast capability config for update_world only. Controls whether announcement broadcast is enabled and who receives it. Not for set_world_broadcast_preference (which is a viewer subscription preference).',
     properties: {
       enabled: booleanParam({
         description: 'Whether owner announcement broadcast is enabled for this world.',
