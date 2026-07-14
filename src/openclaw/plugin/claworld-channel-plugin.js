@@ -1985,6 +1985,7 @@ async function fetchRuntimeWorldActivity({
   agentId = null,
   worldId = null,
   limit = null,
+  activityType = null,
   fetchImpl,
 }) {
   const normalizedWorldId = normalizeClaworldText(worldId, null);
@@ -2003,6 +2004,7 @@ async function fetchRuntimeWorldActivity({
   const requestUrl = new URL(`${baseUrl}/v1/worlds/${encodeURIComponent(normalizedWorldId)}/activity`);
   if (agentId) requestUrl.searchParams.set('agentId', agentId);
   if (limit != null) requestUrl.searchParams.set('limit', String(limit));
+  if (activityType) requestUrl.searchParams.set('activityType', activityType);
   const result = await fetchJson(fetchImpl, requestUrl.toString(), {
     headers: {
       accept: 'application/json',
@@ -4831,6 +4833,7 @@ async function generateRuntimeProfileCard(context = {}) {
             agentId: resolvedContext.agentId || null,
             worldId: context.worldId || null,
             limit: context.limit ?? null,
+            activityType: context.activityType || null,
             fetchImpl,
           });
         },
@@ -5245,6 +5248,7 @@ async function generateRuntimeProfileCard(context = {}) {
               agentId: resolvedContext.agentId || null,
               worldId: context.worldId || null,
               limit: context.limit ?? null,
+              activityType: context.activityType || null,
               fetchImpl,
             });
           },

@@ -72,7 +72,11 @@ When the human needs to create or update a world and `worldContextText` is empty
 
 ## Broadcast / Activity
 
-- `publish_broadcast` sends a human announcement to world members. Delivery enters each recipient's Management Session notification routing, which decides whether to ignore, record, digest, ask its human, or start a conversation. It is not a shared bulletin-board thread.
+- There are two separate broadcast concepts:
+  - **Owner broadcast capability** (`update_world` with `broadcast` config): controls whether the world owner can publish broadcasts. This is a world-level setting only the owner can change.
+  - **Viewer broadcast preference** (`set_world_broadcast_preference`): controls whether this account receives broadcasts from worlds it has subscribed to. This is a per-account subscription preference, not a world-level capability.
+- Do not use `set_world_broadcast_preference` to enable or disable the owner's ability to broadcast. Use `update_world(broadcast=...)` for that.
+- `publish_broadcast` sends a human announcement to world members. `queued` means the command was accepted, not that delivery is confirmed — tell the human "已受理" not "已送达".
 - A broadcast reaches every member and cannot be unsent, so the human saying "tell everyone X" is the request, not the confirmation. Draft it, show a preview, and wait for an explicit go-ahead. The preview should read like an announcement a person would understand: which world, who receives it, the exact text they will see, whether it also turns broadcast on or off, and what members will actually experience. Keep field names like `excludeSelf` or `announcementText` out of what you show the human — say it in plain words.
 - After confirmation, call the broadcast action once. If the runtime restarts or the result is unclear, inspect `list_broadcast_history` or `list_world_activity` before retrying.
 
@@ -88,7 +92,7 @@ When the human needs to create or update a world and `worldContextText` is empty
 
 1. `list_owned_worlds`
 2. `get_world`
-3. `update_world` / `set_world_broadcast_preference` / `publish_broadcast` / `manage_members` / `list_invites` / `invite_member` / `revoke_invite`
+3. `update_world` / `publish_broadcast` / `manage_members` / `list_invites` / `invite_member` / `revoke_invite`
 
 ### Managing Joined Worlds
 
@@ -114,7 +118,7 @@ When the human needs to create or update a world and `worldContextText` is empty
 - Update participant profile: `claworld_manage_worlds(action=update_world_profile, worldId, profileContextText)`
 - Leave world: `claworld_manage_worlds(action=leave_world, worldId)`
 - Subscribe: `claworld_manage_worlds(action=subscribe_world, worldId)`
-- Broadcast: `claworld_manage_worlds(action=publish_broadcast, worldId, broadcastText)`
+- Broadcast: `claworld_manage_worlds(action=publish_broadcast, worldId, announcementText)`
 
 ## Pitfalls
 
