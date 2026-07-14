@@ -1152,7 +1152,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           joinPolicy: stringParam({ description: 'Owner-defined join policy.', minLength: 1 }),
           approvalPolicy: stringParam({ description: 'Owner-defined approval policy.', minLength: 1 }),
           broadcastEnabled: booleanParam({ description: 'Whether a world subscription should receive broadcasts.' }),
-          broadcast: objectParam({ description: 'Optional broadcast config for update_world or set_world_broadcast_preference.', additionalProperties: true }),
+          broadcast: objectParam({ description: 'Optional world broadcast config for owner update_world only (enabled, audience, replyPolicy, excludeSelf).', additionalProperties: true }),
           subscriptionId: stringParam({ description: 'Existing subscription id for unsubscribe_world.', minLength: 1 }),
           targetAgentId: stringParam({ description: 'Target agent id for private-world invitation actions.', minLength: 1 }),
           identity: stringParam({ description: 'Target public identity displayName#code for private-world invitation actions.', minLength: 1 }),
@@ -1219,14 +1219,9 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             ...context,
             worldId,
             limit: params.limit ?? null,
+            ...(action === 'list_broadcast_history' ? { activityType: 'world_broadcast_published' } : {}),
           });
-          const filteredPayload = action === 'list_broadcast_history' && Array.isArray(payload?.items)
-            ? {
-                ...payload,
-                items: payload.items.filter((item) => /broadcast/i.test(String(item.activityType || item.type || ''))),
-              }
-            : payload;
-          return buildTerminalActionResult({ tool: manageWorldsTool, action, payload: filteredPayload });
+          return buildTerminalActionResult({ tool: manageWorldsTool, action, payload });
         }
         if (action === 'manage_members') {
           const worldId = normalizeText(params.worldId, null);

@@ -673,9 +673,86 @@ export async function broadcastModeratedWorld({
     });
   }
 
-  return normalizeWorldBroadcastResponse({
+  const normalized = normalizeWorldBroadcastResponse({
     ...result.body,
     worldId: resolvedWorldId,
     senderAgentId: resolvedAgentId,
   });
+
+  const commandId = normalizeText(result.body?.commandId, null);
+  if (commandId && normalizeText(result.body?.status, null) === 'queued') {
+    const terminal = await pollCommandStatus({
+      fetchImpl,
+      baseUrl,
+      runtimeConfig: resolvedRuntimeConfig,
+      commandId,
+      logger,
+    });
+    if (terminal) {
+      return normalizeWorldBroadcastResponse({
+        ...result.body,
+        ...terminal,
+        worldId: resolvedWorldId,
+        senderAgentId: resolvedAgentId,
+      });
+    }
+  }
+
+  return normalized;
+}
+
+const TERMINAL_COMMAND_STATUSES = new Set(['applied', 'rejected', 'failed_terminal']);
+
+async function pollCommandStatus({
+  fetchImpl,
+  baseUrl,
+  runtimeConfig,
+  commandId,
+  logger = console,
+  maxAttempts = 6,
+  intervalMs = 1000,
+} = {}) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 500 : intervalMs));
+    try {
+      const result = await fetchJson(fetchImpl, `${baseUrl}/v1/orchestration/commands/${encodeURIComponent(commandId)}`, {
+        method: 'GET',
+        headers: buildRuntimeAuthHeaders(runtimeConfig, {
+          accept: 'application/json',
+          ...(runtimeConfig.apiKey ? { 'x-api-key': runtimeConfig.apiKey } : {}),
+        }),
+      });
+      if (!result.ok) {
+        logger.warn?.('[claworld:moderation] broadcast command status query failed', {
+          commandId,
+          status: result.status,
+          attempt,
+        });
+        continue;
+      }
+      const command = result.body?.command;
+      const status = normalizeText(command?.status, null);
+      if (TERMINAL_COMMAND_STATUSES.has(status)) {
+        const commandResult = command?.result && typeof command.result === 'object' ? command.result : {};
+        return {
+          status,
+          broadcastId: normalizeText(commandResult.broadcastId, null),
+          fanoutStatus: normalizeText(commandResult.fanoutStatus, null),
+          totalTargets: normalizeOptionalInteger(commandResult.totalTargets, null),
+          createdCount: normalizeOptionalInteger(commandResult.createdCount, null),
+          failedCount: normalizeOptionalInteger(commandResult.failedCount, null),
+          pendingCount: normalizeOptionalInteger(commandResult.pendingCount, null),
+          autoAcceptedCount: normalizeOptionalInteger(commandResult.autoAcceptedCount, null),
+          rejectedCount: normalizeOptionalInteger(commandResult.rejectedCount, null),
+          nextAction: normalizeText(commandResult.nextAction, null),
+          ...(commandResult.error ? { error: normalizeText(commandResult.error, null) } : {}),
+          ...(commandResult.message ? { message: normalizeText(commandResult.message, null) } : {}),
+        };
+      }
+    } catch (error) {
+      logger.warn?.('[claworld:moderation] broadcast command status poll error', { commandId, attempt, error: error?.message });
+    }
+  }
+  logger.warn?.('[claworld:moderation] broadcast command status poll timed out', { commandId });
+  return null;
 }
