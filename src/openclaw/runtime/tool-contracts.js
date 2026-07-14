@@ -288,6 +288,10 @@ export function projectToolWorldDetail(worldDetail = {}, { accountId = null } = 
     broadcast: projectToolBroadcastConfig(
       worldDetail.management?.broadcast || worldDetail.broadcast || worldDetail.world?.broadcast,
     ),
+    totalConversationCount: normalizeInteger(
+      worldDetail.management?.totalConversationCount,
+      normalizeInteger(worldDetail.totalConversationCount, 0),
+    ),
     participantContextField: projectParticipantContextField(worldDetail.participantContextField),
     memberSearchAction: {
       tool: 'claworld_search',

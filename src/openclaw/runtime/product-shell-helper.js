@@ -190,6 +190,7 @@ function normalizeWorldDetail(payload = {}) {
     enabled: typeof management.enabled === 'boolean' ? management.enabled : null,
     statusLabel: normalizeText(management.status, null),
     broadcast: normalizeBroadcastConfig(management.broadcast || payload.broadcast || world.broadcast),
+    totalConversationCount: normalizeInteger(management.totalConversationCount, 0),
     requiredFieldCount: 1,
     optionalFieldCount: 0,
     requiredFields,
