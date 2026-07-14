@@ -5,7 +5,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SCRIPT_PATH = fileURLToPath(import.meta.url);
+const REPO_ROOT = path.resolve(path.dirname(SCRIPT_PATH), '..');
 const REGISTRY = 'https://registry.npmjs.org';
 const RELEASE_TIME_ZONE = process.env.CLAWORLD_RELEASE_TIME_ZONE || 'Asia/Shanghai';
 
@@ -62,6 +63,33 @@ function run(command, args = [], { capture = false, allowFailure = false } = {})
 
 function npm(args = [], options = {}) {
   return run(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, options);
+}
+
+function git(args = [], options = {}) {
+  return run('git', args, options);
+}
+
+function commandOutput(result) {
+  return String(result?.stdout || '').trim();
+}
+
+export function assertReleaseGitState({ gitCommand = git } = {}) {
+  const branch = commandOutput(gitCommand(['rev-parse', '--abbrev-ref', 'HEAD'], { capture: true }));
+  if (branch !== 'staging') {
+    throw new Error(`releases must run from the staging branch; found ${branch || 'unknown'}`);
+  }
+
+  const status = commandOutput(gitCommand(['status', '--porcelain', '--untracked-files=all'], { capture: true }));
+  if (status) {
+    throw new Error(`working tree must be clean before release:\n${status}`);
+  }
+
+  gitCommand(['fetch', 'origin', 'staging', '--quiet']);
+  const head = commandOutput(gitCommand(['rev-parse', 'HEAD'], { capture: true }));
+  const remoteHead = commandOutput(gitCommand(['rev-parse', 'origin/staging'], { capture: true }));
+  if (!head || head !== remoteHead) {
+    throw new Error(`staging must match origin/staging before release; local=${head || 'unknown'} remote=${remoteHead || 'unknown'}`);
+  }
 }
 
 async function readJson(relativePath) {
@@ -131,6 +159,7 @@ function exactVersionExists(packageName, version) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  assertReleaseGitState();
   const packageJson = await readJson('package.json');
   const manifest = await readJson('openclaw.plugin.json');
 
@@ -150,8 +179,10 @@ async function main() {
   npm(publishArgs);
 }
 
-main().catch((error) => {
-  console.error('FAIL publish');
-  console.error(error);
-  process.exit(1);
-});
+if (path.resolve(process.argv[1] || '') === SCRIPT_PATH) {
+  main().catch((error) => {
+    console.error('FAIL publish');
+    console.error(error);
+    process.exit(1);
+  });
+}
