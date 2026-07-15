@@ -590,6 +590,9 @@ async function main() {
     assert.ok(managementBootstrap.appendSystemContext.includes("Use the notification's exact `chatRequestId`"));
     assert.ok(managementBootstrap.appendSystemContext.includes('Process every delivered notification'));
     assert.equal(managementBootstrap.appendSystemContext.includes('has already been reported successfully'), false);
+    assert.ok(managementBootstrap.appendSystemContext.includes('## Transcript Report Delivery'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('Never use `sessions_send` to send media info'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('forceDocument=true'));
     assert.ok(managementBootstrap.appendSystemContext.includes('## What To Trust'));
     assert.ok(managementBootstrap.appendSystemContext.includes('Use Claworld tools when you need current product facts'));
     assert.ok(managementBootstrap.appendSystemContext.includes('Use `.claworld/` files as private working memory'));

@@ -400,13 +400,12 @@ async function assertSessionSkillDeliveryContracts() {
   assert.match(mainSkill, /Send every rendered page/u);
   assert.match(mainSkill, /8000px default maximum/u);
   assert.match(mainSkill, /does not impose an upper bound/u);
-  assert.match(managementSkill, /Only after that handoff succeeds/u);
+  assert.match(managementSkill, /### Delivering transcript images/u);
   assert.match(managementSkill, /obtain its `deliveryContext`/u);
   assert.match(managementSkill, /call `sessions_list` without the `kinds` parameter/u);
   assert.match(managementSkill, /Do not pass `kinds=\["main"\]`/u);
-  assert.match(managementSkill, /media=<absolute artifacts\.pngPages\[n\]\.path>/u);
-  assert.match(managementSkill, /forceDocument=true/u);
-  assert.match(managementSkill, /send every PNG page/u);
+  assert.match(managementSkill, /message\(action=send, media=<absolute path>, forceDocument=true\)/u);
+  assert.match(managementSkill, /Never use `sessions_send` to send media info/u);
   assert.match(managementSkill, /8000px default maximum/u);
   assert.match(managementSkill, /does not impose an upper bound/u);
   assert.match(managementSkill, /A transcript image is the default for an ended conversation/u);
