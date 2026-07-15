@@ -584,7 +584,7 @@ async function main() {
     assert.ok(managementBootstrap.appendSystemContext.includes('read the `claworld-management-session` skill before deciding what to do'));
     assert.ok(managementBootstrap.appendSystemContext.includes('A memory compaction is a maintenance turn only'));
     assert.ok(managementBootstrap.appendSystemContext.includes('handle the pending or next Claworld notification from scratch'));
-    assert.ok(managementBootstrap.appendSystemContext.includes("Use the notification's exact `chatRequestId`"));
+    assert.ok(managementBootstrap.appendSystemContext.includes("use the notification's exact `chatRequestId`"));
     assert.ok(managementBootstrap.appendSystemContext.includes('Process every delivered conversation-ended notification'));
     assert.equal(managementBootstrap.appendSystemContext.includes('has already been reported successfully'), false);
     assert.ok(managementBootstrap.appendSystemContext.includes('## Transcript Report Delivery'));
