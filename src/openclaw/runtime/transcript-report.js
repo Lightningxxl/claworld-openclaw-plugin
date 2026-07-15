@@ -12,7 +12,7 @@ import { displayCols } from './transcript-report-stylekit.js';
 import { appendClaworldJournalEvent } from './working-memory.js';
 
 const DEFAULT_WIDTH = 720;
-const DEFAULT_MAX_PAGE_HEIGHT = 2000;
+const DEFAULT_MAX_PAGE_HEIGHT = 8000;
 const TIME_SPLIT_SECONDS = 5 * 60;
 const SESSION_INDEX_RELATIVE_PATH = path.join('.claworld', 'sessions', 'index.json');
 
@@ -806,9 +806,9 @@ async function sha256(filePath) {
   return createHash('sha256').update(await fs.readFile(filePath)).digest('hex');
 }
 
-function intValue(value, fallback, minimum, maximum) {
+function intValue(value, fallback, minimum) {
   const parsed = Number.parseInt(value, 10);
-  return Math.min(maximum, Math.max(minimum, Number.isFinite(parsed) ? parsed : fallback));
+  return Math.max(minimum, Number.isFinite(parsed) ? parsed : fallback);
 }
 
 async function writePng(svg, pngPath, page) {
@@ -843,7 +843,7 @@ export async function renderTranscriptReport({ workspaceRoot, localAgentId = nul
 
   const selection = selectionSummary(request, normalized.length);
   const width = DEFAULT_WIDTH;
-  const maxPageHeight = intValue(request.renderArgs.maxPageHeight, DEFAULT_MAX_PAGE_HEIGHT, 900, 8000);
+  const maxPageHeight = intValue(request.renderArgs.maxPageHeight, DEFAULT_MAX_PAGE_HEIGHT, 900);
   const header = headerText(request.renderArgs, normalized, headerContext);
   const decorated = decorateSelection(normalized, selection);
   const measured = decorated.map((item) => measureTranscriptItem(item, width));

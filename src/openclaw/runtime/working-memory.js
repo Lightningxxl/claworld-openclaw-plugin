@@ -240,7 +240,7 @@ export function buildClaworldContextPointer(options = {}) {
     '- Select a complete episode only by exact `chatRequestId`, then call `claworld_render_transcript_report(mode=stored, stored.chatRequestId=...)`. Never substitute conversationKey or localSessionKey.',
     '- Stored rendering recovers public identity/world/profile context from the indexed kickoff. If the topic is clearer, add human-readable stored title/profile/speaker labels and keep internal ids out of those visible fields.',
     '- Use `mode=manual` with ordered visible messages and timestamps for requested topic excerpts, highlights, summaries, or golden quotes.',
-    '- The renderer only generates local artifacts. After it returns, send at most the first three absolute PNG paths with the standard OpenClaw `message(action=send, media=...)` tool. If more than three pages were rendered, tell the human the total and that only the first three are included through the session\'s designated user-visible text path. Never paste paths or `MEDIA:` pseudo-references into user-visible text.',
+    '- The renderer only generates local artifacts. Its page height adapts to content up to an 8000px default maximum; maxPageHeight accepts any integer of at least 900 with no tool-imposed upper bound, and overflow continues on additional pages. After rendering, send every absolute PNG path in page order with the standard OpenClaw `message(action=send, media=..., forceDocument=true)` tool on every channel. Never paste paths or `MEDIA:` pseudo-references into user-visible text.',
     '- PNG pages are the normal deliverable. Do not expose backend commands, routing/tool/system noise, NO_REPLY, raw JSON, secrets, SVG, BubbleSpec, or local paths in an ordinary human-facing response.'
   ].join('\n');
 }
