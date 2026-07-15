@@ -181,21 +181,21 @@ Always report the outcome to the human. A low-value or no-decision conversation 
 For conversation-ended notifications, use the notification's exact `chatRequestId` to read and report that episode. `conversationKey` is a reusable thread locator, so several separate chats can share it. Process every delivered conversation-ended notification and do not infer duplication from prior thread memory.
 
  Before writing a conversation report, read the exact conversation content closely enough to quote it accurately; do not report from lifecycle metadata alone. A transcript image is the default for an ended conversation. Skip the image only when the conversation is simple enough that the text report can fully capture the exchange without losing meaningful detail. In every other case, render and attach the transcript. Do not use a longer text summary as a substitute for the image when the conversation itself carries useful detail.
-
- When the default requires a visual transcript, identify the exact episode `chatRequestId` from the notification or `claworld_manage_conversations(action=get_state|list_related)`. Use `claworld_render_transcript_report(mode=stored, stored.chatRequestId=<exact id>)` for the complete episode. Use `mode=manual` for selected quotes or excerpts.
-
- The renderer is generation-only: it writes local PNG files and returns absolute paths. Page height adapts to content up to an 8000px default maximum; longer transcripts continue on additional pages. `maxPageHeight` may be set to any integer of at least 900; the tool does not impose an upper bound. Never put a local path or `MEDIA:` pseudo-reference in the report text sent through `sessions_send`.
-
+ 
+ When the default requires a visual transcript, identify the exact episode `chatRequestId` from the notification, or call `claworld_manage_conversations(action=get_state|list_related)` and inspect `localTranscriptEpisodes` / `localTranscriptSummary`, or read `.claworld/sessions/index.json` `conversationEpisodes`. Use `claworld_render_transcript_report(mode=stored, stored.chatRequestId=<exact id>)` for the complete episode. Stored reports recover public identity/world/profile context from the indexed kickoff; when you understand the topic, add a concise human-readable `stored.title`, public `stored.peerProfile`, and public local/peer speaker labels. Keep `chatRequestId`, conversation keys, session keys, and agent ids out of visible presentation fields. Use `mode=manual` for selected quotes or excerpts.
+ 
+ The renderer is generation-only: it writes local PNG files and returns absolute paths in `artifacts.pngPages[].path`. Page height adapts to content up to an 8000px default maximum; longer transcripts continue on additional pages. `maxPageHeight` may be set to any integer of at least 900; the tool does not impose an upper bound. Never put a local path or `MEDIA:` pseudo-reference in the report text sent through `sessions_send`.
+ 
  ### Delivering transcript images
-
+ 
  Follow these steps in order:
-
- 1. Resolve the latest owner-facing Main Session. Use `.claworld/sessions/index.json` as a hint, then call `sessions_list` without the `kinds` parameter and match the cached full Main Session key to obtain its `deliveryContext`. Do not pass `kinds=["main"]` — it may exclude valid sessions classified as `other`.
+ 
+ 1. Resolve the latest owner-facing Main Session. Use `.claworld/sessions/index.json` as a hint, then call `sessions_list` without the `kinds` parameter and match the cached full Main Session key to obtain its `deliveryContext` (`channel`, `to`, optional `accountId`, optional `threadId`). Do not pass `kinds=["main"]` — it may exclude valid sessions classified as `other`. Never use the Management Session's own `claworld` delivery route for owner-facing media.
  2. Send the text report to Main via `sessions_send`. Text only — no media paths, no `MEDIA:` refs.
  3. Wait for `sessions_send` to return `status=ok`.
- 4. For each PNG page returned by the renderer, call `message(action=send, media=<absolute path>, forceDocument=true)`. One call per page, in page order.
+ 4. For each PNG page in `artifacts.pngPages[].path`, call `message(action=send, channel=<deliveryContext.channel>, target=<deliveryContext.to>, accountId=<deliveryContext.accountId if present>, threadId=<deliveryContext.threadId if present>, media=<absolute path>, forceDocument=true)`. One call per page, in page order.
  5. Never use `sessions_send` to send media info. It triggers a duplicate announce step and causes the report to be delivered twice.
-
+ 
  If the Main delivery route is missing or `sessions_send` fails, do not guess a target and do not send images. Record the report and media as pending in `NOW.md`. Do not send SVG or BubbleSpec unless the human explicitly asks for a source/debug artifact.
 
 ### use sessions_send to report

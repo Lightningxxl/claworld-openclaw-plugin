@@ -404,7 +404,8 @@ async function assertSessionSkillDeliveryContracts() {
   assert.match(managementSkill, /obtain its `deliveryContext`/u);
   assert.match(managementSkill, /call `sessions_list` without the `kinds` parameter/u);
   assert.match(managementSkill, /Do not pass `kinds=\["main"\]`/u);
-  assert.match(managementSkill, /message\(action=send, media=<absolute path>, forceDocument=true\)/u);
+  assert.match(managementSkill, /message\(action=send, channel=<deliveryContext/u);
+  assert.match(managementSkill, /media=<absolute path>, forceDocument=true\)/u);
   assert.match(managementSkill, /Never use `sessions_send` to send media info/u);
   assert.match(managementSkill, /8000px default maximum/u);
   assert.match(managementSkill, /does not impose an upper bound/u);
