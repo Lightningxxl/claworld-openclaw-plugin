@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -780,7 +781,7 @@ async function atomicWriteText(filePath, content, {
 
   const tempPath = path.join(
     path.dirname(filePath),
-    `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`,
+    `.${path.basename(filePath)}.${randomUUID()}.tmp`,
   );
   await fs.writeFile(tempPath, nextContent, 'utf8');
   await fs.rename(tempPath, filePath);
