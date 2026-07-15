@@ -154,7 +154,7 @@ async function main() {
     assert.ok(pointer.includes('Redact app tokens'));
     assert.ok(pointer.includes('## Conversation Transcript Images'));
     assert.ok(pointer.includes('8000px default maximum'));
-    assert.ok(pointer.includes('no tool-imposed upper bound'));
+    assert.ok(pointer.includes('900 through 32000'));
     assert.ok(pointer.includes('send every absolute PNG path in page order'));
     assert.ok(pointer.includes('forceDocument=true'));
     assert.ok(pointer.includes('## Handling Management Session Handoffs (Announce Protocol)'));

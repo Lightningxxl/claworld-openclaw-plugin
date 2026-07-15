@@ -107,9 +107,9 @@ async function main() {
   }
   const maxPageHeight = renderTranscript.parameters?.properties?.maxPageHeight || {};
   assert.equal(maxPageHeight.minimum, 900);
-  assert.equal(Object.prototype.hasOwnProperty.call(maxPageHeight, 'maximum'), false);
+  assert.equal(maxPageHeight.maximum, 32000);
   assert.ok(maxPageHeight.description.includes('Defaults to 8000'));
-  assert.ok(maxPageHeight.description.includes('no upper bound'));
+  assert.ok(maxPageHeight.description.includes('32000'));
   assert.ok(renderTranscript.description.includes('8000px default maximum'));
   assert.ok(renderTranscript.metadata.usageNotes.some((note) => note.includes('send every artifacts.pngPages[].path')));
   assert.ok(renderTranscript.metadata.usageNotes.some((note) => note.includes('forceDocument=true')));

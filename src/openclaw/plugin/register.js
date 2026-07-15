@@ -26,6 +26,7 @@ import {
 } from '../runtime/working-memory.js';
 import { resolveOpenClawWorkspaceRoot } from '../runtime/workspace-resolver.js';
 import {
+  MAX_PAGE_HEIGHT,
   augmentConversationPayloadWithLocalTranscriptIndex,
   renderTranscriptReport,
 } from '../runtime/transcript-report.js';
@@ -1572,8 +1573,9 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             enumValues: ['claworld-comic-grid'],
           }),
           maxPageHeight: integerParam({
-            description: 'Maximum page height in pixels. Defaults to 8000 and remains adaptive for shorter content. Long transcripts paginate without truncation. Values of at least 900 are accepted with no upper bound imposed by this tool.',
+            description: 'Maximum page height in pixels. Defaults to 8000 and remains adaptive for shorter content. Long transcripts paginate without truncation. Accepted values range from 900 through 32000.',
             minimum: 900,
+            maximum: MAX_PAGE_HEIGHT,
             examples: [8000, 12000],
           }),
         },

@@ -11,6 +11,10 @@ import {
   recordClaworldTranscriptEpisode,
   renderTranscriptReport,
 } from '../src/openclaw/runtime/transcript-report.js';
+import {
+  ensureClaworldWorkingMemory,
+  updateClaworldSessionDirectory,
+} from '../src/openclaw/runtime/working-memory.js';
 
 function indexedKickoffText() {
   return [
@@ -235,7 +239,7 @@ async function assertManualPagination(workspaceRoot) {
   assert.ok(report.artifacts.pngPages.every((page) => page.height <= 980));
 }
 
-async function assertUnboundedPageHeightConfiguration(workspaceRoot) {
+async function assertPageHeightHardLimit(workspaceRoot) {
   const report = await renderTranscriptReport({
     workspaceRoot,
     localAgentId: 'agent-local',
@@ -262,6 +266,96 @@ async function assertUnboundedPageHeightConfiguration(workspaceRoot) {
   assert.ok(report.artifacts.pngPages[0].height <= 12000);
   const spec = JSON.parse(await fs.readFile(report.artifacts.bubbleSpec.path, 'utf8'));
   assert.equal(spec.canvas.maxPageHeight, 12000);
+
+  const capped = await renderTranscriptReport({
+    workspaceRoot,
+    localAgentId: 'agent-local',
+    args: {
+      mode: 'manual',
+      manual: {
+        title: 'Capped transcript test',
+        peerProfile: 'Peer profile',
+        localLabel: 'local-agent',
+        peerLabel: 'peer-agent',
+        messages: [
+          {
+            from: 'peer',
+            text: 'A short message keeps the rendered page adaptive.',
+            createdAt: '2026-07-15T09:01:00Z',
+          },
+        ],
+      },
+      maxPageHeight: 300000,
+    },
+  });
+  const cappedSpec = JSON.parse(await fs.readFile(capped.artifacts.bubbleSpec.path, 'utf8'));
+  assert.equal(cappedSpec.canvas.maxPageHeight, 32000);
+  assert.ok(capped.artifacts.pngPages[0].height < 32000);
+}
+
+async function assertConcurrentSessionIndexWrites(workspaceRoot) {
+  await ensureClaworldWorkingMemory(workspaceRoot);
+  const episodeCount = 24;
+  const directoryCount = 24;
+  const sharedDeliveryCount = 24;
+  const episodeWrites = Array.from({ length: episodeCount }, (_, index) => (
+    recordClaworldTranscriptEpisode(workspaceRoot, {
+      chatRequestId: `concurrent-episode-${index}`,
+      deliveryId: `concurrent-delivery-${index}`,
+      localSessionKey: `agent:main:claworld:conversation:concurrent-${index}`,
+      relaySessionKey: `conversation:concurrent-${index}`,
+      conversationKey: `pair:concurrent-${index}`,
+      localAgentId: 'agent-local',
+      deliveryType: 'turn',
+      commandText: `concurrent peer message ${index}`,
+      createdAt: `2026-07-15T10:${String(index).padStart(2, '0')}:00Z`,
+    })
+  ));
+  const directoryWrites = Array.from({ length: directoryCount }, (_, index) => (
+    updateClaworldSessionDirectory(workspaceRoot, {
+      timestamp: `2026-07-15T11:${String(index).padStart(2, '0')}:00Z`,
+      source: 'unit',
+      scope: 'conversation',
+      relations: {
+        chatRequestId: `concurrent-directory-request-${index}`,
+        localSessionKey: `agent:main:conversation:directory-${index}`,
+        relaySessionKey: `conversation:directory-${index}`,
+        conversationKey: `pair:directory-${index}`,
+        localAgentId: 'agent-local',
+        sessionId: `directory-session-${index}`,
+      },
+    })
+  ));
+  const sharedEpisodeWrites = Array.from({ length: sharedDeliveryCount }, (_, index) => (
+    recordClaworldTranscriptEpisode(workspaceRoot, {
+      chatRequestId: 'concurrent-shared-episode',
+      deliveryId: `concurrent-shared-delivery-${index}`,
+      localSessionKey: 'agent:main:claworld:conversation:concurrent-shared',
+      relaySessionKey: 'conversation:concurrent-shared',
+      conversationKey: 'pair:concurrent-shared',
+      localAgentId: 'agent-local',
+      deliveryType: 'turn',
+      commandText: `shared peer message ${index}`,
+      createdAt: `2026-07-15T12:${String(index).padStart(2, '0')}:00Z`,
+    })
+  ));
+
+  await Promise.all([...episodeWrites, ...directoryWrites, ...sharedEpisodeWrites]);
+
+  const index = JSON.parse(await fs.readFile(
+    path.join(workspaceRoot, '.claworld', 'sessions', 'index.json'),
+    'utf8',
+  ));
+  for (let current = 0; current < episodeCount; current += 1) {
+    assert.ok(index.conversationEpisodes[`concurrent-episode-${current}`]);
+  }
+  for (let current = 0; current < directoryCount; current += 1) {
+    assert.ok(index.conversationSessions[`agent:main:conversation:directory-${current}`]);
+  }
+  assert.equal(
+    index.conversationEpisodes['concurrent-shared-episode'].deliveryCount,
+    sharedDeliveryCount,
+  );
 }
 
 async function assertSafeStoredHeaderFallback(workspaceRoot) {
@@ -399,7 +493,7 @@ async function assertSessionSkillDeliveryContracts() {
   assert.match(mainSkill, /read every `artifacts\.pngPages\[\]\.path` value in page order/u);
   assert.match(mainSkill, /Send every rendered page/u);
   assert.match(mainSkill, /8000px default maximum/u);
-  assert.match(mainSkill, /does not impose an upper bound/u);
+  assert.match(mainSkill, /900 through 32000/u);
   assert.match(managementSkill, /### Delivering the report with images/u);
   assert.match(managementSkill, /get the `deliveryContext`/u);
   assert.match(managementSkill, /call `sessions_list` \(without `kinds`\)/u);
@@ -424,9 +518,10 @@ async function main() {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'claworld-openclaw-transcript-'));
   try {
     await assertStoredRendering(workspaceRoot);
+    await assertConcurrentSessionIndexWrites(workspaceRoot);
     await assertSafeStoredHeaderFallback(workspaceRoot);
     await assertManualPagination(workspaceRoot);
-    await assertUnboundedPageHeightConfiguration(workspaceRoot);
+    await assertPageHeightHardLimit(workspaceRoot);
     await assertToolIsGenerationOnly(workspaceRoot);
     await assertSessionSkillDeliveryContracts();
   } finally {

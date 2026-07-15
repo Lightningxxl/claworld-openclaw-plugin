@@ -56,6 +56,7 @@ const MAX_BOOTSTRAP_TOTAL_CHARS = 60000;
 const CLAWORLD_JOURNAL_SCHEMA = 'claworld.journal.v2';
 const CLAWORLD_SESSION_DIRECTORY_SCHEMA = 'claworld.sessions.v1';
 const CLAWORLD_SESSION_DIRECTORY_FILE = `${CLAWORLD_SESSIONS_DIR}/index.json`;
+const CLAWORLD_SESSION_DIRECTORY_WRITE_QUEUES = new Map();
 
 const MAIN_BOOTSTRAP_FILES = Object.freeze([
   CLAWORLD_WORKING_MEMORY_FILES.memory,
@@ -193,7 +194,7 @@ export function buildClaworldContextPointer(options = {}) {
     '## Conversation Transcript Images',
     '- When the human asks to find, export, quote, or show a prior Claworld conversation, treat it as a Claworld conversation lookup/render task. Read the `claworld-main-session` skill.',
     '- Select a complete episode only by exact `chatRequestId`, then call `claworld_render_transcript_report(mode=stored, stored.chatRequestId=...)`. Never substitute conversationKey or localSessionKey.',
-    '- The renderer only generates local artifacts. Its page height adapts to content up to an 8000px default maximum; maxPageHeight accepts any integer of at least 900 with no tool-imposed upper bound, and overflow continues on additional pages. After rendering, send every absolute PNG path in page order with the standard OpenClaw `message(action=send, media=..., forceDocument=true)` tool on every channel. Never paste paths or `MEDIA:` pseudo-references into user-visible text.',
+    '- The renderer only generates local artifacts. Its page height adapts to content up to an 8000px default maximum; maxPageHeight accepts integers from 900 through 32000, and overflow continues on additional pages. After rendering, send every absolute PNG path in page order with the standard OpenClaw `message(action=send, media=..., forceDocument=true)` tool on every channel. Never paste paths or `MEDIA:` pseudo-references into user-visible text.',
     '- PNG pages are the normal deliverable. Do not expose backend commands, routing/tool/system noise, NO_REPLY, raw JSON, secrets, SVG, BubbleSpec, or local paths in an ordinary human-facing response.'
   ].join('\n');
 }
@@ -762,6 +763,21 @@ async function atomicWriteText(filePath, content, {
   await fs.rename(tempPath, filePath);
 }
 
+export function withClaworldSessionDirectoryWriteLock(workspaceRoot, operation) {
+  if (typeof operation !== 'function') {
+    throw new TypeError('Claworld session directory write operation must be a function');
+  }
+  const queueKey = path.resolve(String(workspaceRoot));
+  const previous = CLAWORLD_SESSION_DIRECTORY_WRITE_QUEUES.get(queueKey) || Promise.resolve();
+  const current = previous.catch(() => {}).then(operation);
+  CLAWORLD_SESSION_DIRECTORY_WRITE_QUEUES.set(queueKey, current);
+  return current.finally(() => {
+    if (CLAWORLD_SESSION_DIRECTORY_WRITE_QUEUES.get(queueKey) === current) {
+      CLAWORLD_SESSION_DIRECTORY_WRITE_QUEUES.delete(queueKey);
+    }
+  });
+}
+
 export async function ensureClaworldWorkingMemory(options = {}, ensureOptions = {}) {
   const workspaceRoot = resolveClaworldWorkspaceRoot(options, ensureOptions.homeDir || os.homedir());
   const memoryRoot = path.join(workspaceRoot, CLAWORLD_WORKING_MEMORY_DIR);
@@ -1094,36 +1110,38 @@ export async function readClaworldSessionDirectory(options = {}, readOptions = {
 export async function updateClaworldSessionDirectory(options = {}, input = {}, updateOptions = {}) {
   const workspaceRoot = resolveClaworldWorkspaceRoot(options, updateOptions.homeDir || os.homedir());
   await ensureClaworldWorkingMemory(workspaceRoot, updateOptions);
-  const sessionDirectoryPath = resolveClaworldSessionDirectoryPath(workspaceRoot);
-  const current = await readJsonIfPresent(sessionDirectoryPath);
-  const baseDirectory = current || createEmptyClaworldSessionDirectory(input.timestamp || updateOptions.timestamp);
-  const result = applyClaworldSessionDirectoryUpdate(baseDirectory, input);
-  if (!result.updated) {
+  return withClaworldSessionDirectoryWriteLock(workspaceRoot, async () => {
+    const sessionDirectoryPath = resolveClaworldSessionDirectoryPath(workspaceRoot);
+    const current = await readJsonIfPresent(sessionDirectoryPath);
+    const baseDirectory = current || createEmptyClaworldSessionDirectory(input.timestamp || updateOptions.timestamp);
+    const result = applyClaworldSessionDirectoryUpdate(baseDirectory, input);
+    if (!result.updated) {
+      return {
+        ok: true,
+        updated: false,
+        reason: result.reason,
+        workspaceRoot,
+        sessionDirectoryPath,
+        directory: normalizeClaworldSessionDirectory(baseDirectory),
+      };
+    }
+    await atomicWriteText(
+      sessionDirectoryPath,
+      `${JSON.stringify(result.directory, null, 2)}\n`,
+      {
+        backup: false,
+        rejectEmptyOverwrite: false,
+      },
+    );
     return {
       ok: true,
-      updated: false,
-      reason: result.reason,
+      updated: true,
+      kind: result.kind,
       workspaceRoot,
       sessionDirectoryPath,
-      directory: normalizeClaworldSessionDirectory(baseDirectory),
+      directory: result.directory,
     };
-  }
-  await atomicWriteText(
-    sessionDirectoryPath,
-    `${JSON.stringify(result.directory, null, 2)}\n`,
-    {
-      backup: false,
-      rejectEmptyOverwrite: false,
-    },
-  );
-  return {
-    ok: true,
-    updated: true,
-    kind: result.kind,
-    workspaceRoot,
-    sessionDirectoryPath,
-    directory: result.directory,
-  };
+  });
 }
 
 function flattenInline(value) {

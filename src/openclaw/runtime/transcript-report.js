@@ -9,10 +9,14 @@ import {
   renderTranscriptPageSvg,
 } from './transcript-report-comic-grid.js';
 import { displayCols } from './transcript-report-stylekit.js';
-import { appendClaworldJournalEvent } from './working-memory.js';
+import {
+  appendClaworldJournalEvent,
+  withClaworldSessionDirectoryWriteLock,
+} from './working-memory.js';
 
 const DEFAULT_WIDTH = 720;
 const DEFAULT_MAX_PAGE_HEIGHT = 8000;
+export const MAX_PAGE_HEIGHT = 32000;
 const TIME_SPLIT_SECONDS = 5 * 60;
 const SESSION_INDEX_RELATIVE_PATH = path.join('.claworld', 'sessions', 'index.json');
 
@@ -137,61 +141,63 @@ export async function recordClaworldTranscriptEpisode(workspaceRoot, input = {})
     return { ok: false, updated: false, reason: 'missing_transcript_identity' };
   }
 
-  const index = await readSessionIndex(workspaceRoot);
-  const previous = isObject(index.conversationEpisodes[chatRequestId])
-    ? index.conversationEpisodes[chatRequestId]
-    : {};
-  let deliveries = appendUniqueDelivery(previous.deliveries, {
-    deliveryId,
-    direction: 'inbound',
-    fromAgentId: text(input.fromAgentId, null),
-    fromAgentCode: text(input.fromAgentCode, null),
-    fromDisplayIdentity: text(input.fromDisplayIdentity, null),
-    deliveryType: text(input.deliveryType, null),
-    commandText,
-    contextText,
-    untrustedContext: text(input.untrustedContext, null),
-    createdAt: text(input.createdAt, null),
-    turnCreatedAt: text(input.turnCreatedAt, null),
-  });
-  const replyText = text(input.replyText, null);
-  if (replyText) {
-    deliveries = appendUniqueDelivery(deliveries, {
-      deliveryId: `${deliveryId}:reply`,
-      direction: 'outbound',
-      deliveryType: 'reply',
-      fromAgentId: text(input.localAgentId, null),
-      commandText: replyText,
-      createdAt: text(input.replyCreatedAt, isoNow()),
-      turnCreatedAt: text(input.replyCreatedAt, isoNow()),
+  return withClaworldSessionDirectoryWriteLock(workspaceRoot, async () => {
+    const index = await readSessionIndex(workspaceRoot);
+    const previous = isObject(index.conversationEpisodes[chatRequestId])
+      ? index.conversationEpisodes[chatRequestId]
+      : {};
+    let deliveries = appendUniqueDelivery(previous.deliveries, {
+      deliveryId,
+      direction: 'inbound',
+      fromAgentId: text(input.fromAgentId, null),
+      fromAgentCode: text(input.fromAgentCode, null),
+      fromDisplayIdentity: text(input.fromDisplayIdentity, null),
+      deliveryType: text(input.deliveryType, null),
+      commandText,
+      contextText,
+      untrustedContext: text(input.untrustedContext, null),
+      createdAt: text(input.createdAt, null),
+      turnCreatedAt: text(input.turnCreatedAt, null),
     });
-  }
+    const replyText = text(input.replyText, null);
+    if (replyText) {
+      deliveries = appendUniqueDelivery(deliveries, {
+        deliveryId: `${deliveryId}:reply`,
+        direction: 'outbound',
+        deliveryType: 'reply',
+        fromAgentId: text(input.localAgentId, null),
+        commandText: replyText,
+        createdAt: text(input.replyCreatedAt, isoNow()),
+        turnCreatedAt: text(input.replyCreatedAt, isoNow()),
+      });
+    }
 
-  const now = isoNow();
-  const deliveryIds = deliveries.map((entry) => text(entry?.deliveryId, null)).filter(Boolean);
-  index.conversationEpisodes[chatRequestId] = compactObject({
-    ...previous,
-    chatRequestId,
-    chatId: text(input.chatId, previous.chatId),
-    lastActiveSessionKey: text(input.localSessionKey, previous.lastActiveSessionKey),
-    relaySessionKey: text(input.relaySessionKey, previous.relaySessionKey),
-    conversationKey: text(input.conversationKey, previous.conversationKey),
-    worldId: text(input.worldId, previous.worldId),
-    targetAgentId: text(input.targetAgentId, previous.targetAgentId),
-    fromAgentCode: text(input.fromAgentCode, previous.fromAgentCode),
-    fromDisplayIdentity: text(input.fromDisplayIdentity, previous.fromDisplayIdentity),
-    firstSeenAt: text(previous.firstSeenAt, text(input.createdAt, now)),
-    lastSeenAt: replyText
-      ? text(input.replyCreatedAt, now)
-      : text(input.turnCreatedAt, text(input.createdAt, now)),
-    deliveryIds,
-    deliveryCount: deliveryIds.length,
-    deliveries,
-    updatedAt: now,
+    const now = isoNow();
+    const deliveryIds = deliveries.map((entry) => text(entry?.deliveryId, null)).filter(Boolean);
+    index.conversationEpisodes[chatRequestId] = compactObject({
+      ...previous,
+      chatRequestId,
+      chatId: text(input.chatId, previous.chatId),
+      lastActiveSessionKey: text(input.localSessionKey, previous.lastActiveSessionKey),
+      relaySessionKey: text(input.relaySessionKey, previous.relaySessionKey),
+      conversationKey: text(input.conversationKey, previous.conversationKey),
+      worldId: text(input.worldId, previous.worldId),
+      targetAgentId: text(input.targetAgentId, previous.targetAgentId),
+      fromAgentCode: text(input.fromAgentCode, previous.fromAgentCode),
+      fromDisplayIdentity: text(input.fromDisplayIdentity, previous.fromDisplayIdentity),
+      firstSeenAt: text(previous.firstSeenAt, text(input.createdAt, now)),
+      lastSeenAt: replyText
+        ? text(input.replyCreatedAt, now)
+        : text(input.turnCreatedAt, text(input.createdAt, now)),
+      deliveryIds,
+      deliveryCount: deliveryIds.length,
+      deliveries,
+      updatedAt: now,
+    });
+    index.updatedAt = now;
+    await atomicWriteJson(sessionIndexPath(workspaceRoot), index);
+    return { ok: true, updated: true, chatRequestId, deliveryCount: deliveryIds.length };
   });
-  index.updatedAt = now;
-  await atomicWriteJson(sessionIndexPath(workspaceRoot), index);
-  return { ok: true, updated: true, chatRequestId, deliveryCount: deliveryIds.length };
 }
 
 function stripOperationalSuffix(content) {
@@ -806,9 +812,9 @@ async function sha256(filePath) {
   return createHash('sha256').update(await fs.readFile(filePath)).digest('hex');
 }
 
-function intValue(value, fallback, minimum) {
+function intValue(value, fallback, minimum, maximum) {
   const parsed = Number.parseInt(value, 10);
-  return Math.max(minimum, Number.isFinite(parsed) ? parsed : fallback);
+  return Math.min(maximum, Math.max(minimum, Number.isFinite(parsed) ? parsed : fallback));
 }
 
 async function writePng(svg, pngPath, page) {
@@ -843,7 +849,7 @@ export async function renderTranscriptReport({ workspaceRoot, localAgentId = nul
 
   const selection = selectionSummary(request, normalized.length);
   const width = DEFAULT_WIDTH;
-  const maxPageHeight = intValue(request.renderArgs.maxPageHeight, DEFAULT_MAX_PAGE_HEIGHT, 900);
+  const maxPageHeight = intValue(request.renderArgs.maxPageHeight, DEFAULT_MAX_PAGE_HEIGHT, 900, MAX_PAGE_HEIGHT);
   const header = headerText(request.renderArgs, normalized, headerContext);
   const decorated = decorateSelection(normalized, selection);
   const measured = decorated.map((item) => measureTranscriptItem(item, width));
