@@ -689,19 +689,38 @@ async function readTextIfPresent(filePath) {
   }
 }
 
-const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const PLUGIN_ROOT = (() => {
+  try {
+    return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+  } catch {
+    return null;
+  }
+})();
+
+const PLUGIN_SKILLS_DIR = (() => {
+  const home = os.homedir();
+  return path.join(home, '.openclaw', 'plugin-skills');
+})();
 
 async function readSkillBody(skillName) {
-  const skillPath = path.join(PLUGIN_ROOT, 'skills', skillName, 'SKILL.md');
-  const text = await readTextIfPresent(skillPath);
-  if (!text) return null;
-  if (text.startsWith('---')) {
-    const marker = text.indexOf('\n---', 3);
-    if (marker !== -1) {
-      return text.slice(marker + 4).trim();
+  const candidates = [];
+  if (PLUGIN_ROOT) {
+    candidates.push(path.join(PLUGIN_ROOT, 'skills', skillName, 'SKILL.md'));
+  }
+  candidates.push(path.join(PLUGIN_SKILLS_DIR, skillName, 'SKILL.md'));
+  for (const skillPath of candidates) {
+    const text = await readTextIfPresent(skillPath);
+    if (text) {
+      if (text.startsWith('---')) {
+        const marker = text.indexOf('\n---', 3);
+        if (marker !== -1) {
+          return text.slice(marker + 4).trim();
+        }
+      }
+      return text.trim();
     }
   }
-  return text.trim();
+  return null;
 }
 
 async function readJsonIfPresent(filePath) {
