@@ -134,8 +134,8 @@ async function assertStoredRendering(workspaceRoot) {
 
   const spec = JSON.parse(await fs.readFile(report.artifacts.bubbleSpec.path, 'utf8'));
   const serialized = JSON.stringify(spec);
-  assert.equal(spec.canvas.maxPageHeight, 2000);
-  assert.ok(report.artifacts.pngPages.every((page) => page.height <= 2000));
+  assert.equal(spec.canvas.maxPageHeight, 8000);
+  assert.ok(report.artifacts.pngPages.every((page) => page.height <= 8000));
   assert.equal(spec.scene.peerId, 'Peer Direct — 暮色档案室-0710');
   assert.equal(spec.scene.peerProfile, 'Peer Direct#PEER01 · structured world profile');
   assert.equal(spec.scene.peerProfileSource, 'rawKickoffText');
@@ -233,6 +233,35 @@ async function assertManualPagination(workspaceRoot) {
   assert.equal(report.pageCount, report.artifacts.svgPages.length);
   assert.ok(report.artifacts.pngPages.every((page) => path.isAbsolute(page.path)));
   assert.ok(report.artifacts.pngPages.every((page) => page.height <= 980));
+}
+
+async function assertUnboundedPageHeightConfiguration(workspaceRoot) {
+  const report = await renderTranscriptReport({
+    workspaceRoot,
+    localAgentId: 'agent-local',
+    args: {
+      mode: 'manual',
+      manual: {
+        title: 'Tall transcript test',
+        peerProfile: 'Peer profile',
+        localLabel: 'local-agent',
+        peerLabel: 'peer-agent',
+        messages: [
+          {
+            from: 'peer',
+            text: Array.from({ length: 280 }, (_, index) => `line ${index + 1}`).join('\n'),
+            createdAt: '2026-07-15T09:00:00Z',
+          },
+        ],
+      },
+      maxPageHeight: 12000,
+    },
+  });
+  assert.equal(report.pageCount, 1);
+  assert.ok(report.artifacts.pngPages[0].height > 8000);
+  assert.ok(report.artifacts.pngPages[0].height <= 12000);
+  const spec = JSON.parse(await fs.readFile(report.artifacts.bubbleSpec.path, 'utf8'));
+  assert.equal(spec.canvas.maxPageHeight, 12000);
 }
 
 async function assertSafeStoredHeaderFallback(workspaceRoot) {
@@ -366,20 +395,26 @@ async function assertSessionSkillDeliveryContracts() {
     fs.readFile(new URL('../skills/claworld-main-session/SKILL.md', import.meta.url), 'utf8'),
     fs.readFile(new URL('../skills/claworld-management-session/SKILL.md', import.meta.url), 'utf8'),
   ]);
-  assert.match(mainSkill, /message\(action=send, media=<absolute PNG path>\)/u);
-  assert.match(mainSkill, /at most the first three/u);
-  assert.match(mainSkill, /normal user-facing assistant response/u);
+  assert.match(mainSkill, /message\(action=send, media=<absolute PNG path>, forceDocument=true\)/u);
+  assert.match(mainSkill, /read every `artifacts\.pngPages\[\]\.path` value in page order/u);
+  assert.match(mainSkill, /Send every rendered page/u);
+  assert.match(mainSkill, /8000px default maximum/u);
+  assert.match(mainSkill, /does not impose an upper bound/u);
   assert.match(managementSkill, /Only after that handoff succeeds/u);
   assert.match(managementSkill, /obtain its `deliveryContext`/u);
   assert.match(managementSkill, /call `sessions_list` without the `kinds` parameter/u);
   assert.match(managementSkill, /Do not pass `kinds=\["main"\]`/u);
   assert.match(managementSkill, /media=<absolute artifacts\.pngPages\[n\]\.path>/u);
-  assert.match(managementSkill, /at most the first three/u);
-  assert.match(managementSkill, /report text handed off through `sessions_send`/u);
+  assert.match(managementSkill, /forceDocument=true/u);
+  assert.match(managementSkill, /send every PNG page/u);
+  assert.match(managementSkill, /8000px default maximum/u);
+  assert.match(managementSkill, /does not impose an upper bound/u);
   assert.match(managementSkill, /A transcript image is the default for an ended conversation/u);
   assert.match(managementSkill, /Skip the image only when the conversation is simple enough/u);
   assert.match(managementSkill, /Do not use a longer text summary as a substitute for the image/u);
   for (const skill of [mainSkill, managementSkill]) {
+    assert.equal(skill.includes('at most the first three'), false);
+    assert.equal(skill.includes('first 3'), false);
     assert.equal(skill.includes('primaryMediaBatch'), false);
     assert.equal(skill.includes('delivery.status=sent'), false);
   }
@@ -391,6 +426,7 @@ async function main() {
     await assertStoredRendering(workspaceRoot);
     await assertSafeStoredHeaderFallback(workspaceRoot);
     await assertManualPagination(workspaceRoot);
+    await assertUnboundedPageHeightConfiguration(workspaceRoot);
     await assertToolIsGenerationOnly(workspaceRoot);
     await assertSessionSkillDeliveryContracts();
   } finally {

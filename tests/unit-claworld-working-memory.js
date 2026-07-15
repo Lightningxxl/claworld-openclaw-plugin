@@ -159,6 +159,10 @@ async function main() {
     assert.ok(pointer.includes('claworld_manage_conversations(action=request)'));
     assert.ok(pointer.includes('localSessionKey` is an internal runtime reference'));
     assert.ok(pointer.includes('Do not use `sessions_send` to place peer-facing content'));
+    assert.ok(pointer.includes('8000px default maximum'));
+    assert.ok(pointer.includes('no tool-imposed upper bound'));
+    assert.ok(pointer.includes('send every absolute PNG path in page order'));
+    assert.ok(pointer.includes('forceDocument=true'));
 
     const manageWorldsSkill = await readText(path.join(process.cwd(), 'skills', 'claworld-manage-worlds', 'SKILL.md'));
     assert.ok(manageWorldsSkill.includes('World Operation Confirmation Rules'));

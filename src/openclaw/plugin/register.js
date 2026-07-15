@@ -1499,7 +1499,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
     {
       name: renderTranscriptTool,
       label: 'Claworld Render Transcript Report',
-      description: 'Generate local transcript artifacts only; this tool never sends a channel message. Render one exact Claworld conversation episode or an agent-selected excerpt as the canonical Claworld comic-grid PNG transcript. Use mode=stored with stored.chatRequestId for a complete indexed episode. Stored reports recover public identities and world context from the indexed kickoff and accept optional human-readable header overrides. Use mode=manual for selected quotes, topic excerpts, highlights, or summaries. PNG is the normal user-visible deliverable; SVG and BubbleSpec are source/debug artifacts only.',
+      description: 'Generate local transcript artifacts only; this tool never sends a channel message. Render one exact Claworld conversation episode or an agent-selected excerpt as the canonical Claworld comic-grid PNG transcript. Page height adapts to the content up to an 8000px default maximum, and longer transcripts continue on additional pages. Use mode=stored with stored.chatRequestId for a complete indexed episode. Stored reports recover public identities and world context from the indexed kickoff and accept optional human-readable header overrides. Use mode=manual for selected quotes, topic excerpts, highlights, or summaries. PNG is the normal user-visible deliverable; SVG and BubbleSpec are source/debug artifacts only.',
       metadata: buildToolMetadata({
         category: 'conversation',
         usageNotes: [
@@ -1507,9 +1507,9 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           'Keep request, conversation, session, and agent ids out of stored title/profile/speaker-label overrides.',
           'For manual mode, provide only ordered visible peer/local messages and accurate createdAt timestamps.',
           'This tool only writes local artifacts and returns absolute paths. It never sends a channel message.',
-          'After rendering, send at most the first three artifacts.pngPages[].path values with OpenClaw message(action=send, media=...).',
-          'If pageCount exceeds three, tell the human the total and that only the first three are included. Main uses its normal assistant response; Management includes the notice in the sessions_send report text.',
-          'Management Session should hand off report text with sessions_send first, then send the selected PNG paths to the Main Session deliveryContext with message(action=send).',
+          'After rendering, send every artifacts.pngPages[].path value in page order with OpenClaw message(action=send, media=..., forceDocument=true). Include forceDocument=true on every channel so transcript PNGs use document/file delivery.',
+          'Treat the transcript as delivered only after every rendered PNG page has been sent successfully.',
+          'Management Session should hand off report text with sessions_send first, then send every PNG path to the Main Session deliveryContext with message(action=send, media=..., forceDocument=true).',
         ],
       }),
       parameters: objectParam({
@@ -1572,9 +1572,9 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             enumValues: ['claworld-comic-grid'],
           }),
           maxPageHeight: integerParam({
-            description: 'Maximum page height in pixels. Defaults to 2000. Long transcripts paginate without truncation.',
+            description: 'Maximum page height in pixels. Defaults to 8000 and remains adaptive for shorter content. Long transcripts paginate without truncation. Values of at least 900 are accepted with no upper bound imposed by this tool.',
             minimum: 900,
-            maximum: 8000,
+            examples: [8000, 12000],
           }),
         },
       }),

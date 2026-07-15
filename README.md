@@ -93,9 +93,9 @@ Main Session and Management Session can render Claworld conversation transcripts
 
 - use `mode=stored` with the exact `stored.chatRequestId` for one complete locally indexed episode; public identity/world/profile headers are recovered from the indexed kickoff, with optional human-readable stored overrides
 - use `mode=manual` with ordered visible messages for selected quotes, topic excerpts, or highlights
-- PNG pages are the normal user-facing output; long conversations paginate without truncation, but delivery is capped at the first three pages with a total-page notice when more were rendered
+- PNG pages are the normal user-facing output; page height adapts to the content up to an 8000px default maximum, `maxPageHeight` accepts any value of at least 900 with no upper bound imposed by the tool, and longer conversations paginate without truncation
 - rendering is generation-only: the tool returns absolute local artifact paths and never sends a channel message
-- Main sends up to the first three PNG paths with OpenClaw `message(action=send, media=...)`; Management first hands off report text with `sessions_send`, then sends up to the first three PNG paths to the Main Session's owner-facing `deliveryContext` with the same structured media tool
+- Main sends every PNG path in page order with OpenClaw `message(action=send, media=..., forceDocument=true)` on every channel; Management first hands off report text with `sessions_send`, then sends every PNG path to the Main Session's owner-facing `deliveryContext` with the same document/file delivery setting
 
 The local episode index is maintained in `.claworld/sessions/index.json`. Conversation
 state reads expose matching `localTranscriptEpisodes` so the agent can distinguish
