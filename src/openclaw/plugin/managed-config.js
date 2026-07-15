@@ -32,7 +32,10 @@ export const DEFAULT_CLAWORLD_SESSION_RESET_MODE = 'idle';
 export const DEFAULT_CLAWORLD_SESSION_RESET_IDLE_MINUTES = 43200;
 export const DEFAULT_CLAWORLD_SESSION_TARGET = 'mainagent';
 export const DEFAULT_CLAWORLD_FALLBACK_TARGET = 'mainagent';
-export const CLAWORLD_PLUGIN_TOOL_ALLOW_ENTRY = 'claworld';
+export const CLAWORLD_MANAGED_AGENT_TOOL_ALLOW_ENTRIES = Object.freeze([
+  'claworld',
+  'message',
+]);
 export const MIN_MANAGED_SESSION_VISIBILITY = 'agent';
 export const REQUIRED_SANDBOX_SESSION_TOOLS_VISIBILITY = 'all';
 export const CLAWORLD_INSTALLER_STATE_ROOT_KEY = 'claworldInstaller';
@@ -104,7 +107,7 @@ function uniqueStrings(values = []) {
   return result;
 }
 
-function mergeManagedPluginToolExposure(existingTools = {}) {
+function mergeManagedAgentToolExposure(existingTools = {}) {
   const tools = ensureObject(existingTools);
   const allow = asStringArray(tools.allow);
   const alsoAllow = asStringArray(tools.alsoAllow);
@@ -112,13 +115,13 @@ function mergeManagedPluginToolExposure(existingTools = {}) {
   if (allow.length > 0) {
     return {
       ...tools,
-      allow: uniqueStrings([...allow, CLAWORLD_PLUGIN_TOOL_ALLOW_ENTRY]),
+      allow: uniqueStrings([...allow, ...CLAWORLD_MANAGED_AGENT_TOOL_ALLOW_ENTRIES]),
     };
   }
 
   return {
     ...tools,
-    alsoAllow: uniqueStrings([...alsoAllow, CLAWORLD_PLUGIN_TOOL_ALLOW_ENTRY]),
+    alsoAllow: uniqueStrings([...alsoAllow, ...CLAWORLD_MANAGED_AGENT_TOOL_ALLOW_ENTRIES]),
   };
 }
 
@@ -195,10 +198,11 @@ export function setClaworldManagedRuntimeBackupState(
   return installerState;
 }
 
-function removeManagedPluginToolExposure(existingTools = {}) {
+function removeManagedAgentToolExposure(existingTools = {}) {
   const tools = ensureObject(existingTools);
-  const allow = asStringArray(tools.allow).filter((toolName) => toolName !== CLAWORLD_PLUGIN_TOOL_ALLOW_ENTRY);
-  const alsoAllow = asStringArray(tools.alsoAllow).filter((toolName) => toolName !== CLAWORLD_PLUGIN_TOOL_ALLOW_ENTRY);
+  const managedEntries = new Set(CLAWORLD_MANAGED_AGENT_TOOL_ALLOW_ENTRIES);
+  const allow = asStringArray(tools.allow).filter((toolName) => !managedEntries.has(toolName));
+  const alsoAllow = asStringArray(tools.alsoAllow).filter((toolName) => !managedEntries.has(toolName));
   const nextTools = { ...tools };
   if (allow.length > 0) nextTools.allow = uniqueStrings(allow);
   else delete nextTools.allow;
@@ -511,7 +515,7 @@ function buildBoundAgentEntry(existingAgent = {}, agentId) {
     ...ensureObject(existingAgent),
     id: agentId,
   };
-  nextAgent.tools = mergeManagedPluginToolExposure(existingAgent.tools);
+  nextAgent.tools = mergeManagedAgentToolExposure(existingAgent.tools);
   return nextAgent;
 }
 
@@ -768,7 +772,7 @@ export function stripClaworldManagedRuntimeConfig(inputConfig = {}, {
     const agentIndex = findAgentIndex(agentList, resolvedAgentId);
     if (agentIndex >= 0) {
       const nextAgent = { ...ensureObject(agentList[agentIndex]) };
-      const nextTools = removeManagedPluginToolExposure(nextAgent.tools);
+      const nextTools = removeManagedAgentToolExposure(nextAgent.tools);
       if (nextTools) nextAgent.tools = nextTools;
       else delete nextAgent.tools;
       agentList[agentIndex] = nextAgent;

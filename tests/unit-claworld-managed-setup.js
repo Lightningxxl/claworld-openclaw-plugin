@@ -209,7 +209,7 @@ async function main() {
   assert.deepEqual(
     configured.agents.list.find((agent) => agent.id === 'main')?.tools,
     {
-      alsoAllow: ['claworld'],
+      alsoAllow: ['claworld', 'message'],
     },
   );
   assertNoManagedToolOrSkillDeclarations(configured);
@@ -294,7 +294,7 @@ async function main() {
   assert.deepEqual(
     refreshed.agents.list.find((agent) => agent.id === 'claworld')?.tools,
     {
-      alsoAllow: ['claworld'],
+      alsoAllow: ['claworld', 'message'],
     },
   );
   assert.deepEqual(
