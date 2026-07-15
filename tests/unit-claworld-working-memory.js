@@ -123,6 +123,41 @@ async function main() {
     assert.equal(await readText(profilePath), templates['context/PROFILE.md']);
     assert.equal(await readText(memoryPath), templates['context/MEMORY.md']);
 
+    const concurrentWorkspaceRoot = path.join(tempRoot, 'concurrent-workspace');
+    await ensureClaworldWorkingMemory(concurrentWorkspaceRoot);
+    const originalDateNow = Date.now;
+    try {
+      // This regression covers temp-path uniqueness and valid atomic replacement.
+      // Session index updates still use a whole-file read-modify-write contract.
+      Date.now = () => 1_752_537_600_000;
+      const concurrentWrites = Array.from({ length: 16 }, (_, index) => (
+        updateClaworldSessionDirectory(
+          concurrentWorkspaceRoot,
+          {
+            timestamp: '2026-07-15T00:00:00.000Z',
+            source: 'unit',
+            scope: 'main',
+            relations: {
+              localSessionKey: `agent:main:concurrent:${index}`,
+              sessionKey: `agent:main:concurrent:${index}`,
+              localAgentId: 'main',
+            },
+          },
+        )
+      ));
+      const concurrentResults = await Promise.all(concurrentWrites);
+      assert.equal(concurrentResults.length, 16);
+      assert.ok(concurrentResults.every((result) => result.updated === true));
+    } finally {
+      Date.now = originalDateNow;
+    }
+    const concurrentSessionDirectory = path.join(concurrentWorkspaceRoot, '.claworld', 'sessions');
+    const concurrentIndexContent = await readText(path.join(concurrentSessionDirectory, 'index.json'));
+    assert.doesNotThrow(() => JSON.parse(concurrentIndexContent));
+    const leftoverTempFiles = (await fs.readdir(concurrentSessionDirectory))
+      .filter((filename) => filename.endsWith('.tmp'));
+    assert.deepEqual(leftoverTempFiles, []);
+
     await fs.writeFile(nowPath, customNow, 'utf8');
     await ensureClaworldWorkingMemory(workspaceRoot);
     assert.equal(await readText(nowPath), customNow);
