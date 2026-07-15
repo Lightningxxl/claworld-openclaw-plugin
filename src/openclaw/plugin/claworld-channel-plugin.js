@@ -75,6 +75,12 @@ import {
 } from '../runtime/product-shell-helper.js';
 import { extractBackendErrorContext } from '../runtime/backend-error-context.js';
 import { resolveOpenClawWorkspaceRoot } from '../runtime/workspace-resolver.js';
+import {
+  claimInboundNotification,
+  completeInboundNotification,
+  releaseInboundNotification,
+  resolveInboundNotificationIdempotencyKey,
+} from '../runtime/inbound-notification-idempotency.js';
 import { getClaworldRuntime } from './runtime.js';
 import {
   CLAWORLD_PLUGIN_CURRENT_VERSION,
@@ -2129,6 +2135,7 @@ function buildDeliveryInboundEnvelope({
   sessionKey,
   localSessionKey = null,
   worldId = null,
+  chatRequestId = null,
   conversationKey = null,
   untrustedContext = [],
 }) {
@@ -2150,6 +2157,7 @@ function buildDeliveryInboundEnvelope({
   const contextLines = mergeUntrustedContextLines([
     `[claworld peer ${remoteLabel}]`,
     ...(worldId ? [`[claworld world ${worldId}]`] : []),
+    ...(chatRequestId ? [`[claworld chat request ${chatRequestId}]`] : []),
     ...(conversationKey ? [`[claworld conversation ${conversationKey}]`] : []),
     ...(localSessionKey && localSessionKey !== sessionKey ? [`[claworld local session ${localSessionKey}]`] : []),
     `[claworld relay session ${sessionKey}]`,
@@ -2386,8 +2394,11 @@ function buildInboundRuntimeMaintenanceEvent({
   const isRelayDelivery = normalizedEventType === 'delivery';
   const sessionKey = resolveNormalizedText(delivery.sessionKey, null);
   const requestId = resolveNormalizedText(
-    metadata.kickoffRequestId,
-    resolveNormalizedText(metadata.requestId, resolveNormalizedText(metadata.chatRequestId, null)),
+    delivery.chatRequestId,
+    resolveNormalizedText(
+      metadata.kickoffRequestId,
+      resolveNormalizedText(metadata.requestId, resolveNormalizedText(metadata.chatRequestId, null)),
+    ),
   );
   const worldId = resolveNormalizedText(
     metadata.worldId,
@@ -2992,7 +3003,7 @@ function resolveBoundLocalAgentId({ cfg = {}, runtimeConfig = {}, relayClient } 
     || 'main';
 }
 
-async function maybeBridgeRuntimeInboundEvent({
+export async function maybeBridgeRuntimeInboundEvent({
   relayClient,
   runtimeConfig,
   runtimeAccountId,
@@ -3024,6 +3035,10 @@ async function maybeBridgeRuntimeInboundEvent({
   );
   const commandText = resolveNormalizedText(payload.commandText, incomingText);
   const fromAgentId = resolveNormalizedText(metadata.fromAgentId, null);
+  const chatRequestId = resolveNormalizedText(
+    delivery.chatRequestId,
+    resolveNormalizedText(metadata.chatRequestId, resolveNormalizedText(payload.chatRequestId, null)),
+  );
   const isRelayDelivery = eventType === 'delivery';
   const allowReply = metadata.allowReply === true || (isRelayDelivery && metadata.allowReply !== false);
 
@@ -3076,6 +3091,43 @@ async function maybeBridgeRuntimeInboundEvent({
     event?.route?.sessionKind,
     resolveNormalizedText(routed?.sessionKind, null),
   );
+  const isManagementSession = routeSessionKind === 'management';
+  const workspaceRoot = resolveOpenClawWorkspaceRoot({
+    sources: [
+      { agentId: localAgentId, localAgentId },
+      currentCfg,
+      runtimeConfig,
+    ],
+    config: currentCfg,
+    agentId: localAgentId,
+  });
+  const notificationIdempotencyKey = resolveInboundNotificationIdempotencyKey({
+    delivery,
+    payload,
+    metadata,
+    eventType,
+    sessionKind: routeSessionKind,
+  });
+  let notificationClaim = null;
+  if (notificationIdempotencyKey) {
+    if (!workspaceRoot) {
+      throw new Error('unable to resolve OpenClaw workspace for Management notification idempotency');
+    }
+    notificationClaim = await claimInboundNotification({
+      workspaceRoot,
+      key: notificationIdempotencyKey,
+    });
+    if (!notificationClaim.claimed) {
+      logger.info?.(`[claworld:${runtimeAccountId}] suppressed duplicate Management notification`, {
+        eventType,
+        deliveryId,
+        sessionKey,
+        reason: notificationClaim.reason,
+      });
+      return { skipped: true, reason: 'duplicate_management_notification' };
+    }
+  }
+  try {
   const remoteIdentity = fromAgentId
     || resolveNormalizedText(metadata.source, routeSessionKind === 'management' ? 'claworld-management' : 'unknown-peer');
   const worldId = resolveDeliveryWorldId(delivery);
@@ -3097,11 +3149,11 @@ async function maybeBridgeRuntimeInboundEvent({
     sessionKey,
     localSessionKey,
     worldId,
-    conversationKey: metadata.conversationKey || null,
+    chatRequestId,
+    conversationKey: delivery.conversationKey || metadata.conversationKey || null,
     untrustedContext: payload.untrustedContext,
   });
   const localIdentity = normalizeClaworldText(runtimeConfig.relay?.agentId, runtimeConfig.accountId);
-  const isManagementSession = routeSessionKind === 'management';
   const senderName = isManagementSession ? 'Claworld' : remoteIdentity;
   const conversationLabel = isManagementSession ? 'Claworld management' : remoteIdentity;
   const inboundCtx = runtime.channel.reply.finalizeInboundContext({
@@ -3133,8 +3185,9 @@ async function maybeBridgeRuntimeInboundEvent({
     WasMentioned: false,
     CommandAuthorized: commandAuthorized,
     RelayDeliveryId: isRelayDelivery ? deliveryId : null,
+    RelayChatRequestId: chatRequestId,
     RelayFromAgentId: fromAgentId,
-    RelayConversationKey: metadata.conversationKey || null,
+    RelayConversationKey: delivery.conversationKey || metadata.conversationKey || null,
     UntrustedContext,
   });
 
@@ -3261,15 +3314,6 @@ async function maybeBridgeRuntimeInboundEvent({
   }
 
   let journalResult = null;
-  const workspaceRoot = resolveOpenClawWorkspaceRoot({
-    sources: [
-      { agentId: localAgentId, localAgentId },
-      currentCfg,
-      runtimeConfig,
-    ],
-    config: currentCfg,
-    agentId: localAgentId,
-  });
   if (workspaceRoot) {
     try {
       const maintenanceEvent = buildInboundRuntimeMaintenanceEvent({
@@ -3293,6 +3337,10 @@ async function maybeBridgeRuntimeInboundEvent({
         error: error?.message || String(error),
       });
     }
+  }
+
+  if (notificationClaim?.claimed) {
+    await completeInboundNotification(notificationClaim);
   }
 
   logger.info?.(`[claworld:${runtimeAccountId}] ${isRelayDelivery ? 'delivery bridge completed' : 'inbound bridge completed'}`, {
@@ -3320,6 +3368,21 @@ async function maybeBridgeRuntimeInboundEvent({
     localSessionKey,
     routeStatus: routed?.status || null,
   };
+  } catch (error) {
+    if (notificationClaim?.claimed) {
+      try {
+        await releaseInboundNotification(notificationClaim);
+      } catch (releaseError) {
+        logger.error?.(`[claworld:${runtimeAccountId}] failed to release Management notification claim`, {
+          eventType,
+          deliveryId,
+          sessionKey,
+          error: releaseError?.message || String(releaseError),
+        });
+      }
+    }
+    throw error;
+  }
 }
 
 export function createClaworldChannelPlugin({

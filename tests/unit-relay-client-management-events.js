@@ -20,6 +20,7 @@ const relayNotification = {
       title: 'Invitation to Test World',
       body: 'You were invited to a private world.',
       relatedObjects: {
+        chatRequestId: 'req_unit_management',
         worldId: 'wld_unit',
       },
     },
@@ -33,6 +34,8 @@ assert.equal(envelope.targetAgentId, 'agt_ff4');
 assert.equal(envelope.sessionKey, 'management:agt_ff4');
 assert.equal(envelope.payload.text, 'Claworld notification: Invitation to Test World');
 assert.equal(envelope.payload.notification.notificationType, 'world.invite_received');
+assert.equal(envelope.chatRequestId, 'req_unit_management');
+assert.equal(envelope.metadata.notificationId, 'ntf_unit_management');
 
 const simpleBackendNotification = {
   event: 'world.invite_received',
