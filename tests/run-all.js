@@ -13,6 +13,8 @@ const TEST_GROUPS = {
     'tests/unit-openclaw-tool-error-boundary.js',
     'tests/unit-relay-client-error-boundary.js',
     'tests/unit-relay-client-management-events.js',
+    'tests/unit-inbound-notification-idempotency.js',
+    'tests/unit-management-notification-dispatch-idempotency.js',
     'tests/unit-publish-package-git-state.js',
   ],
 };

@@ -50,6 +50,24 @@ function resolveEnvelopeMessageId(data = {}, payload = {}) {
   return null;
 }
 
+function resolveEnvelopeChatRequestId(data = {}, payload = {}, metadata = {}, notification = {}) {
+  const relatedObjects = notification.relatedObjects && typeof notification.relatedObjects === 'object'
+    && !Array.isArray(notification.relatedObjects)
+    ? notification.relatedObjects
+    : {};
+  const candidates = [
+    data.chatRequestId,
+    payload.chatRequestId,
+    metadata.chatRequestId,
+    relatedObjects.chatRequestId,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeEnvelopeText(candidate, null);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 export function normalizeRelayWebSocketUrl(serverUrl) {
   const parsed = new URL(serverUrl);
   if (parsed.protocol === 'http:') parsed.protocol = 'ws:';
@@ -139,6 +157,7 @@ export function buildInboundEnvelope(message = {}) {
     eventName,
     eventId: deliveryId,
     deliveryId,
+    chatRequestId: resolveEnvelopeChatRequestId(data, payload, metadata, notification),
     sessionKey,
     targetAgentId,
     conversationKey: normalizeEnvelopeText(
@@ -157,6 +176,10 @@ export function buildInboundEnvelope(message = {}) {
       ...metadata,
       relayEvent: normalizeEnvelopeText(message.event, null),
       inboxItemId: normalizeEnvelopeText(data.inboxItemId, normalizeEnvelopeText(payload.inboxItemId, null)),
+      notificationId: normalizeEnvelopeText(
+        data.notificationId,
+        normalizeEnvelopeText(payload.notificationId, normalizeEnvelopeText(notification.notificationId, null)),
+      ),
     },
   };
 }
