@@ -400,18 +400,18 @@ async function assertSessionSkillDeliveryContracts() {
   assert.match(mainSkill, /Send every rendered page/u);
   assert.match(mainSkill, /8000px default maximum/u);
   assert.match(mainSkill, /does not impose an upper bound/u);
-  assert.match(managementSkill, /### Delivering transcript images/u);
-  assert.match(managementSkill, /obtain its `deliveryContext`/u);
-  assert.match(managementSkill, /call `sessions_list` without the `kinds` parameter/u);
-  assert.match(managementSkill, /Do not pass `kinds=\["main"\]`/u);
+  assert.match(managementSkill, /### Delivering the report with images/u);
+  assert.match(managementSkill, /get the `deliveryContext`/u);
+  assert.match(managementSkill, /call `sessions_list` \(without `kinds`\)/u);
+  assert.match(managementSkill, /without `kinds`/u);
   assert.match(managementSkill, /message\(action=send, channel=<deliveryContext/u);
   assert.match(managementSkill, /media=<absolute path>, forceDocument=true\)/u);
-  assert.match(managementSkill, /Never use `sessions_send` to send media info/u);
-  assert.match(managementSkill, /8000px default maximum/u);
-  assert.match(managementSkill, /does not impose an upper bound/u);
-  assert.match(managementSkill, /A transcript image is the default for an ended conversation/u);
-  assert.match(managementSkill, /Skip the image only when the conversation is simple enough/u);
-  assert.match(managementSkill, /Do not use a longer text summary as a substitute for the image/u);
+  assert.match(managementSkill, /Keep media delivery to `message\(action=send\)` only/u);
+  assert.match(managementSkill, /up to 8000px tall by default/u);
+  assert.match(managementSkill, /longer conversations produce multiple pages/u);
+  assert.match(managementSkill, /For most conversations, attach a transcript image/u);
+  assert.match(managementSkill, /Skip the image only for very short exchanges/u);
+  assert.match(managementSkill, /attach a transcript image alongside your text summary/u);
   for (const skill of [mainSkill, managementSkill]) {
     assert.equal(skill.includes('at most the first three'), false);
     assert.equal(skill.includes('first 3'), false);

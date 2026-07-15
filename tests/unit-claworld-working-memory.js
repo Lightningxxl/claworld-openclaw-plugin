@@ -588,7 +588,7 @@ async function main() {
     assert.ok(managementBootstrap.appendSystemContext.includes('Process every delivered conversation-ended notification'));
     assert.equal(managementBootstrap.appendSystemContext.includes('has already been reported successfully'), false);
     assert.ok(managementBootstrap.appendSystemContext.includes('## Transcript Report Delivery'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('Never use `sessions_send` to send media info'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('Keep media delivery to `message(action=send)` only'));
     assert.ok(managementBootstrap.appendSystemContext.includes('forceDocument=true'));
     assert.ok(managementBootstrap.appendSystemContext.includes('## Local Files'));
     assert.ok(managementBootstrap.appendSystemContext.includes('PROFILE.md:'));
