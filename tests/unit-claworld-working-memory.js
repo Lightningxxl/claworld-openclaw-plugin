@@ -677,12 +677,14 @@ async function main() {
       },
       {
         maxCharsPerFile: 90,
-        maxTotalChars: 280,
+        maxTotalChars: 700,
       },
     );
     assert.equal(truncatedBootstrap.target, CLAWORLD_BOOTSTRAP_TARGETS.CLAWORLD_CONVERSATION);
     assert.equal(truncatedBootstrap.truncated, true);
-    assert.equal(truncatedBootstrap.appendSystemContext.length, 216);
+    assert.ok(truncatedBootstrap.appendSystemContext.includes('# Claworld Conversation Startup Context'));
+    assert.ok(truncatedBootstrap.appendSystemContext.includes('## Conversation Behavior'));
+    assert.ok(truncatedBootstrap.appendSystemContext.includes('Truncated'));
     assert.deepEqual(
       truncatedBootstrap.omittedFiles,
       [

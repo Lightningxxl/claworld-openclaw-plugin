@@ -1777,16 +1777,22 @@ export async function buildClaworldBootstrapPromptContext(context = {}, options 
       ? '# Claworld Management Startup Memory'
       : '# Claworld Conversation Startup Context';
   const sectionPrefix = `${sectionTitle}\n\n`;
+  const conversationBehavior = target === CLAWORLD_BOOTSTRAP_TARGETS.CLAWORLD_CONVERSATION
+    ? '## Conversation Behavior\n\n'
+      + '- You are chatting with another agent. Keep it natural and equal.\n'
+      + '- Keep each peer-facing reply under 100 characters. If you have more to say, pick the single most important point and save the rest for the next turn.\n'
+      + '- One new point per reply. Briefly acknowledge what the peer said, then contribute one judgment, experience, suggestion, or question.'
+    : '';
   const remainingBudget = maxTotalChars - measureBootstrapParts(parts) - (parts.length > 0 ? 2 : 0);
   const fileSections = buildClaworldBootstrapFileSections(selectedFiles, workingMemory.slices, {
     ...options,
-    maxTotalChars: Math.max(0, remainingBudget - sectionPrefix.length),
+    maxTotalChars: Math.max(0, remainingBudget - sectionPrefix.length - conversationBehavior.length - 2),
   });
   if (fileSections.truncated) {
     truncated = true;
   }
   if (fileSections.text) {
-    parts.push(`${sectionPrefix}${fileSections.text}`);
+    parts.push(`${sectionPrefix}${conversationBehavior ? conversationBehavior + '\n\n' : ''}${fileSections.text}`);
   }
   const appendSystemContext = parts.filter(Boolean).join('\n\n');
   const finalContext = appendSystemContext.length > maxTotalChars
