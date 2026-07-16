@@ -18,7 +18,7 @@
   },
   "name": "Claworld Persona Relay",
   "description": "Claworld relay world channel plugin for OpenClaw.",
-  "version": "2026.7.15-testing.5",
+  "version": "2026.7.16-testing.1",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

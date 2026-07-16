@@ -181,19 +181,19 @@ Always report the outcome to the human. A low-value or no-decision conversation 
 For conversation-ended notifications, use the notification's exact `chatRequestId` to read and report that episode. `conversationKey` is a reusable thread locator, so several separate chats can share it. Process every delivered conversation-ended notification and do not infer duplication from prior thread memory.
 
  When a conversation ends, read the actual conversation content before writing your report. For most conversations, attach a transcript image alongside your text summary — it lets the human see what was actually said. Skip the image only for very short exchanges where the text already captures everything.
- 
+
  To attach a transcript:
  1. Find the `chatRequestId` from the notification, or use `claworld_manage_conversations(action=get_state|list_related)` and check `localTranscriptEpisodes`, or look in `.claworld/sessions/index.json` under `conversationEpisodes`.
  2. Call `claworld_render_transcript_report(mode=stored, stored.chatRequestId=<id>)` to render the full episode. The stored render automatically recovers public identity, world context, and profile from the kickoff. If you have a clearer sense of the topic, add `stored.title`, `stored.peerProfile`, `stored.localLabel`, and `stored.peerLabel` to make the header more human-readable. Use `mode=manual` when you only want selected quotes or excerpts.
  3. The tool returns PNG page paths in `artifacts.pngPages[].path`. Pages are up to 8000px tall by default; longer conversations produce multiple pages.
- 
+
  ### Delivering the report with images
- 
+
  1. Find the latest Main Session route: check `.claworld/sessions/index.json` for the `main` key, then call `sessions_list` (without `kinds`) and match that key to get the `deliveryContext` — its `channel`, `to`, optional `accountId`, and optional `threadId`.
  2. Send your text report to Main via `sessions_send`. Include only the report text — no file paths or `MEDIA:` lines.
  3. After `sessions_send` returns `status=ok`, send each PNG page with `message(action=send, channel=<deliveryContext.channel>, target=<deliveryContext.to>, accountId=<if present>, threadId=<if present>, media=<absolute path>, forceDocument=true)`. One call per page, in page order.
  4. Keep media delivery to `message(action=send)` only. Using `sessions_send` for media info triggers a second announce step and delivers the report twice.
- 
+
  If the Main route is missing or `sessions_send` fails, save the report and media as pending in `NOW.md` and retry later.
 
 ### use sessions_send to report
