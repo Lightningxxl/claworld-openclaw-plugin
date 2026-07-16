@@ -240,6 +240,7 @@ function buildGeneratedClientMessageId() {
 }
 
 const DEFAULT_RELAY_HTTP_TIMEOUT_MS = 15_000;
+export const CHAT_REQUEST_CREATE_TIMEOUT_MS = 60_000;
 const CLAWORLD_ASSISTANT_OUTPUT_TTL_MS = 60_000;
 const CLAWORLD_ASSISTANT_OUTPUT_WAIT_MS = 750;
 const CLAWORLD_ASSISTANT_OUTPUT_POLL_MS = 25;
@@ -1015,6 +1016,7 @@ async function createChatRequest({
     });
   }
   const result = await fetchJson(fetchImpl, `${baseUrl}/v1/chat-requests`, {
+    timeoutMs: CHAT_REQUEST_CREATE_TIMEOUT_MS,
     method: 'POST',
     headers: {
       'content-type': 'application/json',

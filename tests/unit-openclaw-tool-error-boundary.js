@@ -1,7 +1,9 @@
 import assert from 'assert';
 import { registerClaworldPlugin } from '../src/openclaw/index.js';
+import { CHAT_REQUEST_CREATE_TIMEOUT_MS } from '../src/openclaw/plugin/claworld-channel-plugin.js';
 
 async function main() {
+  assert.equal(CHAT_REQUEST_CREATE_TIMEOUT_MS, 60_000);
   const tools = [];
   const cfg = {
     channels: {
@@ -24,6 +26,7 @@ async function main() {
   };
   const chatRequestBodies = [];
   const pendingInviteUrls = [];
+  let delayNextChatResponse = false;
 
   registerClaworldPlugin(
     {
@@ -140,6 +143,10 @@ async function main() {
         ) {
           const body = JSON.parse(init?.body || '{}');
           chatRequestBodies.push(body);
+          if (delayNextChatResponse) {
+            delayNextChatResponse = false;
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          }
           if (!String(body.openingMessage || '').trim()) {
             return {
               ok: false,
@@ -249,16 +256,30 @@ async function main() {
   assert.equal(missingOpeningPayload.fieldErrors?.[0]?.fieldId, 'openingMessage');
 
   const messageAliasIndex = chatRequestBodies.length;
-  const messageAliasResult = await requestChat.execute('tool_send_message_alias', {
-    accountId: 'moza',
-    action: 'request',
-    displayName: 'Runtime Candidate',
-    agentCode: 'ZX82QP',
-    message: 'hello from message alias',
-  });
+  const scheduledTimeouts = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (callback, delay, ...args) => {
+    scheduledTimeouts.push(delay);
+    const scaledDelay = delay === CHAT_REQUEST_CREATE_TIMEOUT_MS ? 60 : delay;
+    return originalSetTimeout(callback, scaledDelay, ...args);
+  };
+  delayNextChatResponse = true;
+  let messageAliasResult;
+  try {
+    messageAliasResult = await requestChat.execute('tool_send_message_alias', {
+      accountId: 'moza',
+      action: 'request',
+      displayName: 'Runtime Candidate',
+      agentCode: 'ZX82QP',
+      message: 'hello from message alias',
+    });
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
   const messageAliasPayload = JSON.parse(messageAliasResult.content[0].text);
   assert.equal(messageAliasPayload.status, 'pending');
   assert.equal(chatRequestBodies[messageAliasIndex]?.openingMessage, 'hello from message alias');
+  assert.ok(scheduledTimeouts.includes(CHAT_REQUEST_CREATE_TIMEOUT_MS));
 
   const pendingInviteResult = await manageWorld.execute('tool_pending_invites_1', {
     accountId: 'moza',

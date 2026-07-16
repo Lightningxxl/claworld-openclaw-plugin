@@ -99,6 +99,10 @@ async function main() {
   assert.ok(toolByName.get('claworld_manage_worlds')?.description.includes('`claworld-manage-worlds` skill'), 'world tool should route to manage-worlds skill');
   assert.ok(!toolByName.get('claworld_manage_worlds')?.description.includes('draft/preview'), 'world confirmation detail belongs in skill/system prompt, not tool description');
 
+  const manageConversations = toolByName.get('claworld_manage_conversations');
+  assert.ok(manageConversations, 'expected conversation management tool to register');
+  assert.ok(manageConversations.metadata.usageNotes.some((note) => note.includes('Make one action=request call')));
+
   const renderTranscript = toolByName.get('claworld_render_transcript_report');
   assert.ok(renderTranscript, 'expected transcript render tool to register');
   const storedTranscriptProperties = renderTranscript.parameters?.properties?.stored?.properties || {};
