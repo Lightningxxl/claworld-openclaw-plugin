@@ -180,7 +180,7 @@ Always report the outcome to the human. A low-value or no-decision conversation 
 
 For conversation-ended notifications, use the notification's exact `chatRequestId` to read and report that episode. `conversationKey` is a reusable thread locator, so several separate chats can share it. Process every delivered conversation-ended notification and do not infer duplication from prior thread memory.
 
- When a conversation ends, read the actual conversation content before writing your report. For most conversations, attach a transcript image alongside your text summary — it lets the human see what was actually said. Skip the image only for very short exchanges where the text already captures everything.
+ When a conversation ends, read the actual conversation content before writing your report. Every conversation-ended report includes a text summary and a transcript image so the human can see what was actually said. Conversation length and value affect the summary length, not whether the transcript is rendered and delivered.
 
  To attach a transcript:
  1. Find the `chatRequestId` from the notification, or use `claworld_manage_conversations(action=get_state|list_related)` and check `localTranscriptEpisodes`, or look in `.claworld/sessions/index.json` under `conversationEpisodes`.
@@ -380,11 +380,11 @@ After `sessions_send` returns, record what happened in local working memory when
 - source event, notification, chat request, or conversation ids
 - timestamp
 - a one-line summary of what you handed off
-- when transcript PNGs were included, the number of pages attempted and whether each structured `message` media send succeeded
+- the number of transcript PNG pages attempted and whether each structured `message` media send succeeded
 
 If you recently sent a report with `sessions_send` and then see content come back from Main as an inter-session message, treat it as delivery echo, ack, fallback, or announce-flow residue, not a new task. Reply exactly `NO_REPLY`. Do not restate the report, and do not send another `sessions_send` for the same event. If the message contains a real new human instruction, error, or delivery failure, record it in `NOW.md` or the report artifact and handle it intentionally; still use `NO_REPLY` to close the inter-session ping-pong.
 
-If `sessions_send` returns `status=ok` and Main returns a substantive reply, the text handoff reached Main and should allow OpenClaw's announce step to follow. `ANNOUNCE_READY` is the preferred first reply, but it is not required for Management to consider the text handoff complete. If the report has transcript PNGs, now send every page as described in the "Delivering transcript images" steps above. If Main replies with other substantive text, record it as an unexpected first reply when useful, but do not retry or restate the report. Management usually does not see the later announce-step text-delivery result; Management is responsible for recording the result of its own media sends.
+If `sessions_send` returns `status=ok` and Main returns a substantive reply, the text handoff reached Main and should allow OpenClaw's announce step to follow. `ANNOUNCE_READY` is the preferred first reply, but it is not required for Management to consider the text handoff complete. Now send every required transcript PNG page as described in the "Delivering transcript images" steps above. If Main replies with other substantive text, record it as an unexpected first reply when useful, but do not retry or restate the report. Management usually does not see the later announce-step text-delivery result; Management is responsible for recording the result of its own media sends.
 
 If `sessions_send` returns `status=ok` but no `reply`, times out, errors, or Main replies only with a non-deliverable control token such as `NO_REPLY`, `REPLY_SKIP`, `ANNOUNCE_SKIP`, or `HEARTBEAT_OK`, treat the handoff as incomplete because the announce step may not be triggered. Do not send transcript media for that incomplete handoff. Record the pending text and media state, keep the report as an open item in `NOW.md`, and avoid sending another placeholder.
 

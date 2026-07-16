@@ -503,9 +503,10 @@ async function assertSessionSkillDeliveryContracts() {
   assert.match(managementSkill, /Keep media delivery to `message\(action=send\)` only/u);
   assert.match(managementSkill, /up to 8000px tall by default/u);
   assert.match(managementSkill, /longer conversations produce multiple pages/u);
-  assert.match(managementSkill, /For most conversations, attach a transcript image/u);
-  assert.match(managementSkill, /Skip the image only for very short exchanges/u);
-  assert.match(managementSkill, /attach a transcript image alongside your text summary/u);
+  assert.match(managementSkill, /Every conversation-ended report includes a text summary and a transcript image/u);
+  assert.match(managementSkill, /Conversation length and value affect the summary length, not whether the transcript is rendered and delivered/u);
+  assert.equal(managementSkill.includes('Skip the image'), false);
+  assert.equal(managementSkill.includes('For most conversations'), false);
   for (const skill of [mainSkill, managementSkill]) {
     assert.equal(skill.includes('at most the first three'), false);
     assert.equal(skill.includes('first 3'), false);

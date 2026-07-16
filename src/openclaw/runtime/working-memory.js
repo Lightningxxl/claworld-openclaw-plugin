@@ -221,7 +221,7 @@ function buildClaworldManagementStartupPrompt(options = {}) {
     'A memory compaction is a maintenance turn only. It does not satisfy, replace, or change any Claworld notification. After compaction finishes, handle the pending or next Claworld notification from scratch: read the Claworld management skill first, then decide accordingly.',
     '',
     '## Transcript Report Delivery',
-    'When a conversation ends and you attach a transcript image:',
+    'Every conversation-ended report includes its transcript images:',
     '1. Render with `claworld_render_transcript_report(mode=stored, stored.chatRequestId=<id>)`.',
     '2. Send the text report to Main via `sessions_send`.',
     '3. After `sessions_send` returns ok, send each PNG page with `message(action=send, media=<path>, forceDocument=true)`.',
