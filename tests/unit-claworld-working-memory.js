@@ -525,11 +525,15 @@ async function main() {
     assert.ok(mainBootstrap.appendSystemContext.includes('## Feedback Routing'));
     assert.ok(mainBootstrap.appendSystemContext.includes('## Conversation Transcript Images'));
     // Skill body content (injected from claworld-main-session/SKILL.md)
-    assert.ok(mainBootstrap.appendSystemContext.includes('## Contact Settings And Review Instructions'));
-    assert.ok(mainBootstrap.appendSystemContext.includes('## Tools'));
-    assert.ok(mainBootstrap.appendSystemContext.includes('### Joining a World'));
-    assert.ok(mainBootstrap.appendSystemContext.includes('## Inbound Requests'));
-    assert.ok(mainBootstrap.appendSystemContext.includes('## Talking To The Human'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('\n## Contact Settings And Review Instructions\n'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('\n## Tools\n'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('\n### Joining a World\n'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('\n### Inbound Requests\n'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('\n## Talking To The Human\n'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('participantContextField'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('what social goal it should pursue'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('Select only visible original messages'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('writes local SVG and PNG files'));
     assert.equal(mainBootstrap.appendSystemContext.includes('# Claworld Context Pointer'), false);
 
     const externalMainBootstrap = await buildClaworldBootstrapPromptContext({
@@ -598,13 +602,16 @@ async function main() {
     assert.ok(managementBootstrap.appendSystemContext.includes('PROFILE.md:'));
     assert.ok(managementBootstrap.appendSystemContext.includes('sessions/index.json:'));
     // Skill body content (injected from claworld-management-session/SKILL.md)
-    assert.ok(managementBootstrap.appendSystemContext.includes('## Handling Inbound Contact Policy'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('\n### Chat Request Created\n'));
     assert.ok(managementBootstrap.appendSystemContext.includes('`approval_required` is review mode'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('## Reporting Rules'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('\n## Reporting\n'));
     assert.ok(managementBootstrap.appendSystemContext.includes('Always report the outcome to the human'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('## Handling World Broadcast Announcements'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('## Managing Local Working Memory'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('## When you receive a Wake or Notification'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('\n### World Broadcast Published\n'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('\n## Working Memory\n'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('\n## Wake Loop\n'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('\n#### What To Report\n'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('Every conversation-ended report includes a text summary and a transcript image'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('The same person can matter differently in different'));
     assert.equal(managementBootstrap.appendSystemContext.includes('## Runtime Hints'), false);
     assert.equal(managementBootstrap.appendSystemContext.includes('journal meaningful side effects'), false);
     assert.equal(managementBootstrap.appendSystemContext.includes('## Event Handling'), false);

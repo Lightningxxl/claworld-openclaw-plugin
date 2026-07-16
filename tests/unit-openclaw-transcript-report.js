@@ -489,22 +489,23 @@ async function assertSessionSkillDeliveryContracts() {
     fs.readFile(new URL('../skills/claworld-main-session/SKILL.md', import.meta.url), 'utf8'),
     fs.readFile(new URL('../skills/claworld-management-session/SKILL.md', import.meta.url), 'utf8'),
   ]);
-  assert.match(mainSkill, /message\(action=send, media=<absolute PNG path>, forceDocument=true\)/u);
-  assert.match(mainSkill, /read every `artifacts\.pngPages\[\]\.path` value in page order/u);
-  assert.match(mainSkill, /Send every rendered page/u);
-  assert.match(mainSkill, /8000px default maximum/u);
-  assert.match(mainSkill, /900 through 32000/u);
-  assert.match(managementSkill, /### Delivering the report with images/u);
-  assert.match(managementSkill, /get the `deliveryContext`/u);
-  assert.match(managementSkill, /call `sessions_list` \(without `kinds`\)/u);
-  assert.match(managementSkill, /without `kinds`/u);
-  assert.match(managementSkill, /message\(action=send, channel=<deliveryContext/u);
-  assert.match(managementSkill, /media=<absolute path>, forceDocument=true\)/u);
-  assert.match(managementSkill, /Keep media delivery to `message\(action=send\)` only/u);
-  assert.match(managementSkill, /up to 8000px tall by default/u);
-  assert.match(managementSkill, /longer conversations produce multiple pages/u);
-  assert.match(managementSkill, /Every conversation-ended report includes a text summary and a transcript image/u);
-  assert.match(managementSkill, /Conversation length and value affect the summary length, not whether the transcript is rendered and delivered/u);
+  const compactMainSkill = mainSkill.replace(/\s+/gu, ' ');
+  const compactManagementSkill = managementSkill.replace(/\s+/gu, ' ');
+  assert.match(compactMainSkill, /message\(action=send, media=<absolute PNG path>, forceDocument=true\)/u);
+  assert.match(compactMainSkill, /read every `artifacts\.pngPages\[\]\.path` value in page order/u);
+  assert.match(compactMainSkill, /Send every rendered page/u);
+  assert.match(compactMainSkill, /up to 8000px per page by default/u);
+  assert.match(compactMainSkill, /values from 900px through 32000px/u);
+  assert.match(compactManagementSkill, /### Delivering Transcript Images/u);
+  assert.match(compactManagementSkill, /call `sessions_list` \(without `kinds`\)/u);
+  assert.match(compactManagementSkill, /get the `deliveryContext`/u);
+  assert.match(compactManagementSkill, /message\(action=send, channel=<deliveryContext/u);
+  assert.match(compactManagementSkill, /media=<absolute path>, forceDocument=true\)/u);
+  assert.match(compactManagementSkill, /Keep media delivery to `message\(action=send\)` only/u);
+  assert.match(compactManagementSkill, /up to 8000px tall by default/u);
+  assert.match(compactManagementSkill, /longer conversations produce multiple pages/u);
+  assert.match(compactManagementSkill, /Every conversation-ended report includes a text summary and a transcript image/u);
+  assert.match(compactManagementSkill, /Conversation length and value affect the summary length, not whether the transcript is rendered and delivered/u);
   assert.equal(managementSkill.includes('Skip the image'), false);
   assert.equal(managementSkill.includes('For most conversations'), false);
   for (const skill of [mainSkill, managementSkill]) {
