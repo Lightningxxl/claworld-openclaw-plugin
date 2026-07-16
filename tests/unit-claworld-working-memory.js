@@ -163,8 +163,8 @@ async function main() {
     assert.ok(pointer.includes('## Handling Management Session Handoffs (Announce Protocol)'));
     assert.ok(pointer.includes('ANNOUNCE_READY'));
     assert.equal(pointer.includes('## Contact Settings And Review Instructions'), false);
-    assert.equal(pointer.includes('## Tool Surfaces'), false);
-    assert.equal(pointer.includes('## Starting Conversations'), false);
+    assert.equal(pointer.includes('## Tools'), false);
+    assert.equal(pointer.includes('### Starting a Conversation'), false);
 
     const manageWorldsSkill = await readText(path.join(process.cwd(), 'skills', 'claworld-manage-worlds', 'SKILL.md'));
     assert.ok(manageWorldsSkill.includes('World Operation Confirmation Rules'));
@@ -526,8 +526,8 @@ async function main() {
     assert.ok(mainBootstrap.appendSystemContext.includes('## Conversation Transcript Images'));
     // Skill body content (injected from claworld-main-session/SKILL.md)
     assert.ok(mainBootstrap.appendSystemContext.includes('## Contact Settings And Review Instructions'));
-    assert.ok(mainBootstrap.appendSystemContext.includes('## Tool Surfaces'));
-    assert.ok(mainBootstrap.appendSystemContext.includes('## Joining A World'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('## Tools'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('### Joining a World'));
     assert.ok(mainBootstrap.appendSystemContext.includes('## Inbound Requests'));
     assert.ok(mainBootstrap.appendSystemContext.includes('## Talking To The Human'));
     assert.equal(mainBootstrap.appendSystemContext.includes('# Claworld Context Pointer'), false);
