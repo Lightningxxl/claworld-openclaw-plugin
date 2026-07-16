@@ -152,6 +152,9 @@ async function main() {
     assert.ok(pointer.includes('## Feedback Routing'));
     assert.ok(pointer.includes('claworld_manage_account(action=submit_feedback)'));
     assert.ok(pointer.includes('Redact app tokens'));
+    assert.ok(pointer.includes('## Conversation Request Recovery'));
+    assert.ok(pointer.includes('Make one `action=request` call for each human instruction'));
+    assert.ok(pointer.includes('first or last seen in the current request window proves creation'));
     assert.ok(pointer.includes('## Conversation Transcript Images'));
     assert.ok(pointer.includes('8000px default maximum'));
     assert.ok(pointer.includes('900 through 32000'));

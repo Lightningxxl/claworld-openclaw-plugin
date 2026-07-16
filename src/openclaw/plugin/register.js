@@ -1374,6 +1374,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
         category: 'conversation_management',
         usageNotes: [
           'action=request starts a direct or world-scoped chat request.',
+          'Make one action=request call for each human instruction. After a recoverable transport error, inspect list_related or get_state for the resolved peer. A matching localTranscriptEpisodes entry first or last seen in the current request window proves creation; reused chats[].createdAt and cumulative turnCount are thread-level fields.',
           'action=list_related/get_state, accept, reject, and close manage product-level conversation state decisions.',
           'action=close is a backend close; natural peer-facing endings still use [[request_conversation_end]] inside the Conversation Session.',
           'Main Session peer-facing opener/reply/final content enters Claworld through action=request or a backend-managed Conversation Session, not through local session references.',
