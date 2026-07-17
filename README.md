@@ -91,8 +91,9 @@ structured readiness snapshot before attempting repair.
 Main Session and Management Session can render Claworld conversation transcripts with
 `claworld_render_transcript_report`:
 
-- use `mode=stored` with the exact `stored.chatRequestId` for one complete locally indexed episode; public identity/world/profile headers are recovered from the indexed kickoff, with optional human-readable stored overrides
-- use `mode=manual` with ordered visible messages for selected quotes, topic excerpts, or highlights
+- use `mode=stored` with top-level `chatRequestId` and an Agent-written `topic` for one complete locally indexed episode; the Conversation Passport internally recovers Direct/World mode, public identities, the applicable Peer Profile, World Context, and request initiator without a required prior state call
+- OpenClaw keeps stored episodes separate per receiving Claworld account; `chatRequestId` alone remains sufficient when it resolves to one local view, while `accountId` disambiguates the uncommon case where both sides of the same request are connected in one workspace
+- use `mode=manual` with ordered visible messages and `manual.topic` for selected quotes, topic excerpts, or highlights; optional Passport facts stay inside `manual`, and unknown facts are not inferred
 - PNG pages are the normal user-facing output; page height adapts to the content up to an 8000px default maximum, `maxPageHeight` accepts values from 900 through 32000, and longer conversations paginate without truncation
 - rendering is generation-only: the tool returns absolute local artifact paths and never sends a channel message
 - Main sends every PNG path in page order with OpenClaw `message(action=send, media=..., forceDocument=true)` on every channel; Management first hands off report text with `sessions_send`, then sends every PNG path to the Main Session's owner-facing `deliveryContext` with the same document/file delivery setting

@@ -2,19 +2,25 @@ import {
   clipDisplay,
   displayCols,
   ellipsizeText,
+  emojiTextPresentation,
   escapeXml,
+  fontCssRules,
   fontFamily,
+  graphemeClusters,
+  textRuns,
   textUnits,
+  wrapTokens,
   wrapText,
 } from './transcript-report-stylekit.js';
 
 const CANVAS_MARGIN = 24;
 const FRAME_MARGIN = 16;
-const HEADER_Y = 48;
-const HEADER_CARD_HEIGHT_ONE_LINE = 92;
-const HEADER_CARD_HEIGHT_TWO_LINES = 110;
-const HEADER_BOTTOM_PAD = 20;
-const BODY_TOP_GAP = 24;
+export const HEADER_Y = 48;
+export const HEADER_CARD_HEIGHT_FULL = 286;
+export const HEADER_CARD_HEIGHT_NO_CONTEXT = 168;
+export const HEADER_CARD_HEIGHT_COMPACT = 96;
+export const HEADER_BOTTOM_PAD = 20;
+export const BODY_TOP_GAP = 24;
 const PAGE_BOTTOM = 54;
 const ITEM_GAP = 22;
 const TIME_ROW_HEIGHT = 42;
@@ -30,21 +36,41 @@ const BUBBLE_MIN_WIDTH = 200;
 const FONT_SIZE = 18;
 const SMALL_FONT_SIZE = 12;
 const LABEL_FONT_SIZE = 15;
-const TITLE_FONT_SIZE = 34;
+export const TITLE_FONT_SIZE = 25;
 const LINE_HEIGHT = 29;
-const HEADER_SUBTITLE_MAX_UNITS = 33;
-const HEADER_SUBTITLE_MAX_LINES = 2;
-const HEADER_SUBTITLE_LINE_HEIGHT = 19;
+export const HEADER_TOPIC_MAX_UNITS = 20;
+export const HEADER_TOPIC_MAX_LINES = 2;
+export const HEADER_TOPIC_LINE_HEIGHT = 26;
+const HEADER_TOPIC_EMBLEM_HALF_WIDTH = 28;
+const HEADER_TOPIC_EMBLEM_GAP = 12;
+export const HEADER_COMPACT_TOPIC_MAX_UNITS = 26;
+export const CONTEXT_CARD_HEIGHT = 54;
+export const CONTEXT_CARD_GAP = 8;
+export const CONTEXT_LABEL_FONT_SIZE = 12;
+export const CONTEXT_TEXT_FONT_SIZE = 13;
+export const CONTEXT_TEXT_LINE_HEIGHT = 18;
+export const CONTEXT_TEXT_MAX_LINES = 2;
+const CONTEXT_TEXT_BASELINE_CENTER_OFFSET = 4;
 const TAG_HEIGHT = 58;
 const TAG_ICON_SIZE = 30;
 const TAG_ICON_GAP = 12;
 const TAG_ICON_TOP_GAP = 8;
+const TAG_ROW_GAP = 10;
 const TAG_FALLBACK_MAX_COLS = 10;
+const MAX_VISIBLE_TAGS = 8;
 const TEXT_UNIT_PX = 18;
-const BLACK = '#090909';
+export const IDENTITY_CODE_GAP = 3;
+const IDENTITY_DOT_GAP = 5;
+const IDENTITY_EDGE_PADDING = 4;
+export const IDENTITY_NAME_FONT_SIZE = 26;
+export const IDENTITY_CODE_FONT_SIZE = 19;
+export const IDENTITY_COMPACT_NAME_FONT_SIZE = 22;
+export const IDENTITY_COMPACT_CODE_FONT_SIZE = 16;
+export const BLACK = '#090909';
 
 const THEME = Object.freeze({
   paper: '#FBF8EF',
+  paperWarm: '#FFFDF7',
   headerFill: '#FEF5D8',
   muted: '#222222',
   leftFill: '#EFFFF5',
@@ -52,6 +78,10 @@ const THEME = Object.freeze({
   rightFill: '#EFE0FF',
   rightLabel: '#B785FF',
   timeFill: '#FFFDF7',
+  directBadge: '#67DDF1',
+  worldBadge: '#FFB34F',
+  chatBadge: '#D3B7FF',
+  passportStrip: '#FFFDF7',
 });
 
 const TAG_ICON_THEMES = Object.freeze({
@@ -62,8 +92,14 @@ const TAG_ICON_THEMES = Object.freeze({
 
 const fixed = (value, places = 1) => Number(value).toFixed(places);
 
-function labelText(label) {
-  return clipDisplay(String(label || 'AGENT').toUpperCase(), LABEL_MAX_COLS);
+export function bodyParticipantName(label) {
+  const value = String(label || 'AGENT').trim();
+  const [name, code] = splitIdentity(value);
+  return code ? name : value;
+}
+
+export function labelText(label) {
+  return clipDisplay(bodyParticipantName(label).toUpperCase(), LABEL_MAX_COLS);
 }
 
 function labelWidth(label) {
@@ -84,11 +120,35 @@ function tagWidth(tag) {
   return Math.max(58, Math.min(126, displayCols(fallbackTagLabel(normalized)) * 8 + 24));
 }
 
-function tagRowUnits(tags) {
-  if (!tags.length) return 0;
-  const width = tags.reduce((sum, tag) => sum + tagWidth(tag), 0)
+function visibleTags(tags) {
+  if (tags.length <= MAX_VISIBLE_TAGS) return [...tags];
+  const kept = tags.slice(0, MAX_VISIBLE_TAGS - 1);
+  kept.push(`+${tags.length - kept.length} more`);
+  return kept;
+}
+
+function packTagRows(tags, maxWidth) {
+  const rows = [];
+  let row = [];
+  let used = 0;
+  for (const tag of tags) {
+    const width = tagWidth(tag);
+    const needed = row.length ? TAG_ICON_GAP + width : width;
+    if (row.length && used + needed > maxWidth) {
+      rows.push(row);
+      row = [];
+      used = 0;
+    }
+    row.push(tag);
+    used += row.length > 1 ? TAG_ICON_GAP + width : width;
+  }
+  if (row.length) rows.push(row);
+  return rows;
+}
+
+function tagRowWidth(tags) {
+  return tags.reduce((sum, tag) => sum + tagWidth(tag), 0)
     + Math.max(0, tags.length - 1) * TAG_ICON_GAP;
-  return width / TEXT_UNIT_PX;
 }
 
 export function measureTranscriptItem(item, width) {
@@ -118,10 +178,11 @@ export function measureTranscriptItem(item, width) {
   const { message } = item;
   const maxUnits = Math.max(18, (contentWidth - BUBBLE_PAD_X * 2) / TEXT_UNIT_PX);
   const lines = wrapText(message.text, maxUnits);
+  const tagRows = packTagRows(visibleTags(message.tags), contentWidth - BUBBLE_PAD_X * 2);
   const labelUnits = textUnits(labelText(message.participantLabel)) + 4;
   const contentUnits = Math.max(
     ...lines.map((line) => textUnits(line)),
-    tagRowUnits(message.tags),
+    ...tagRows.map((row) => tagRowWidth(row) / TEXT_UNIT_PX),
     labelUnits,
     10,
   );
@@ -130,7 +191,9 @@ export function measureTranscriptItem(item, width) {
     Math.max(BUBBLE_MIN_WIDTH, contentUnits * TEXT_UNIT_PX + BUBBLE_PAD_X * 2),
   ));
   const textHeight = lines.length * LINE_HEIGHT;
-  const tagHeight = message.tags.length ? TAG_HEIGHT : 0;
+  const tagHeight = tagRows.length
+    ? TAG_HEIGHT + Math.max(0, tagRows.length - 1) * (TAG_ICON_SIZE + TAG_ROW_GAP)
+    : 0;
   const bubbleHeight = BUBBLE_PAD_Y * 2 + textHeight + tagHeight;
   return {
     kind: 'message',
@@ -138,31 +201,78 @@ export function measureTranscriptItem(item, width) {
     lines,
     width: bubbleWidth,
     height: LABEL_HEIGHT - LABEL_OVERLAP + bubbleHeight + 10,
+    tagRows,
     tagHeight,
     textHeight,
   };
 }
 
-function headerSubtitleLines(subtitle) {
-  const lines = wrapText(String(subtitle ?? '').trim(), HEADER_SUBTITLE_MAX_UNITS);
-  if (lines.length <= HEADER_SUBTITLE_MAX_LINES) return lines;
-  const visible = lines.slice(0, HEADER_SUBTITLE_MAX_LINES - 1);
-  const remainder = lines.slice(HEADER_SUBTITLE_MAX_LINES - 1)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join(' ');
-  visible.push(ellipsizeText(remainder, HEADER_SUBTITLE_MAX_UNITS, '…'));
-  return visible;
+function headerValue(header, ...names) {
+  if (!header || typeof header !== 'object') return '';
+  for (const name of names) {
+    const value = header[name];
+    if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+  }
+  return '';
 }
 
-function headerCardHeight(subtitle) {
-  return headerSubtitleLines(subtitle).length > 1
-    ? HEADER_CARD_HEIGHT_TWO_LINES
-    : HEADER_CARD_HEIGHT_ONE_LINE;
+export function normalizeInitiatedBy(value) {
+  const normalized = String(value || '').trim().toLowerCase().replaceAll('_', '-');
+  if (['peer', 'inbound', 'remote', 'from-peer'].includes(normalized)) return 'peer';
+  if (['local', 'me', 'outbound', 'from-local'].includes(normalized)) return 'local';
+  return '';
 }
 
-function headerHeight(subtitle) {
-  return HEADER_Y + headerCardHeight(subtitle) + HEADER_BOTTOM_PAD;
+export function headerContextBlocks(header, fallbackText = '') {
+  const rawBlocks = header?.contextBlocks || header?.context_blocks;
+  const blocks = [];
+  if (Array.isArray(rawBlocks)) {
+    for (const item of rawBlocks) {
+      const kind = headerValue(item, 'kind');
+      const label = headerValue(item, 'label').replace(/[：: ]+$/u, '');
+      const text = headerValue(item, 'text');
+      const source = headerValue(item, 'source');
+      if (text) blocks.push({ kind: kind || 'profile', label, text, source });
+    }
+  }
+  if (!blocks.length) {
+    const label = headerValue(header, 'contextLabel', 'context_label').replace(/[：: ]+$/u, '');
+    const text = headerValue(header, 'contextText', 'context_text');
+    const source = headerValue(header, 'contextSource', 'context_source');
+    if (text) blocks.push({ kind: 'profile', label, text, source });
+    const worldContext = headerValue(header, 'worldContextText', 'world_context_text', 'worldContext');
+    if (worldContext) {
+      blocks.push({
+        kind: 'worldContext',
+        label: 'World Context',
+        text: worldContext,
+        source: headerValue(header, 'worldContextSource', 'world_context_source'),
+      });
+    }
+  }
+  if (!blocks.length && String(fallbackText || '').trim()) {
+    blocks.push({
+      kind: 'profile',
+      label: 'Profile',
+      text: String(fallbackText).trim(),
+      source: 'fallback',
+    });
+  }
+  return blocks.slice(0, 2);
+}
+
+export function fullHeaderCardHeight(contextBlocks) {
+  const count = Math.min(2, Array.isArray(contextBlocks) ? contextBlocks.length : 0);
+  if (!count) return HEADER_CARD_HEIGHT_NO_CONTEXT;
+  const contentHeight = count * CONTEXT_CARD_HEIGHT + (count - 1) * CONTEXT_CARD_GAP;
+  return Math.min(HEADER_CARD_HEIGHT_FULL, 156 + contentHeight + 14);
+}
+
+export function transcriptHeaderHeight({ compact = false, header = null, subtitle = '' } = {}) {
+  const cardHeight = compact
+    ? HEADER_CARD_HEIGHT_COMPACT
+    : fullHeaderCardHeight(headerContextBlocks(header, header ? '' : subtitle));
+  return HEADER_Y + cardHeight + HEADER_BOTTOM_PAD;
 }
 
 function positions(width, bubbleWidth, label, side) {
@@ -186,25 +296,101 @@ function positions(width, bubbleWidth, label, side) {
   };
 }
 
-export function paginateTranscriptItems(items, width, maxHeight, title, subtitle) {
+function splitMeasuredMessageItem(item, maxHeight) {
+  if (item.kind !== 'message' || item.height <= maxHeight) return [item];
+  const fixedHeight = LABEL_HEIGHT - LABEL_OVERLAP + BUBBLE_PAD_Y * 2 + 10;
+  const plainLineLimit = Math.max(1, Math.floor((maxHeight - fixedHeight) / LINE_HEIGHT));
+  const finalLineLimit = Math.max(
+    1,
+    Math.floor((maxHeight - fixedHeight - item.tagHeight) / LINE_HEIGHT),
+  );
+  const remaining = [...item.lines];
+  const chunks = [];
+  while (remaining.length > finalLineLimit) {
+    const take = Math.max(1, Math.min(plainLineLimit, remaining.length - 1));
+    chunks.push(remaining.splice(0, take));
+  }
+  chunks.push(remaining);
+  return chunks.map((lines, index) => {
+    const finalChunk = index === chunks.length - 1;
+    const tagHeight = finalChunk ? item.tagHeight : 0;
+    const textHeight = lines.length * LINE_HEIGHT;
+    return {
+      ...item,
+      lines,
+      height: fixedHeight + textHeight + tagHeight,
+      textHeight,
+      tagHeight,
+      message: {
+        ...item.message,
+        text: lines.join('\n'),
+        tags: finalChunk ? [...item.message.tags] : [],
+      },
+      tagRows: finalChunk ? item.tagRows : [],
+    };
+  });
+}
+
+export function paginateTranscriptItems(
+  items,
+  width,
+  maxHeight,
+  titleOrHeader,
+  subtitle = '',
+  structuredHeader = null,
+) {
+  const objectHeader = titleOrHeader && typeof titleOrHeader === 'object' && !Array.isArray(titleOrHeader)
+    ? titleOrHeader
+    : null;
+  const header = structuredHeader || objectHeader;
+  const title = objectHeader
+    ? headerValue(objectHeader, 'topic', 'title') || 'Claworld conversation'
+    : String(titleOrHeader ?? '');
+  const legacySubtitle = objectHeader ? '' : String(subtitle ?? '');
+  const fullHeaderHeight = transcriptHeaderHeight({ header, subtitle: legacySubtitle });
+  const compactHeaderHeight = transcriptHeaderHeight({ compact: true, header, subtitle: legacySubtitle });
+  const minimumMessageHeight = LABEL_HEIGHT - LABEL_OVERLAP
+    + BUBBLE_PAD_Y * 2 + LINE_HEIGHT + 10;
+  const fullMessageHeight = Math.max(
+    minimumMessageHeight,
+    maxHeight - fullHeaderHeight - BODY_TOP_GAP - PAGE_BOTTOM - TIME_ROW_HEIGHT - ITEM_GAP * 2,
+  );
+  const compactMessageHeight = Math.max(
+    minimumMessageHeight,
+    maxHeight - compactHeaderHeight - BODY_TOP_GAP - PAGE_BOTTOM - TIME_ROW_HEIGHT - ITEM_GAP * 2,
+  );
+  const paginationItems = [];
+  let firstMessage = true;
+  for (const item of items) {
+    if (item.kind !== 'message') {
+      paginationItems.push(item);
+      continue;
+    }
+    paginationItems.push(...splitMeasuredMessageItem(
+      item,
+      firstMessage ? fullMessageHeight : compactMessageHeight,
+    ));
+    firstMessage = false;
+  }
   const pageGroups = [[]];
-  const currentHeaderHeight = headerHeight(subtitle);
-  let used = currentHeaderHeight + BODY_TOP_GAP + PAGE_BOTTOM;
-  items.forEach((item, index) => {
+  let used = fullHeaderHeight + BODY_TOP_GAP + PAGE_BOTTOM;
+  paginationItems.forEach((item, index) => {
     const itemHeight = item.height + ITEM_GAP;
     let neededHeight = itemHeight;
-    if (item.kind === 'time' && index + 1 < items.length) {
-      neededHeight += items[index + 1].height + ITEM_GAP;
+    if (item.kind === 'time' && index + 1 < paginationItems.length) {
+      neededHeight += paginationItems[index + 1].height + ITEM_GAP;
     }
     if (pageGroups.at(-1).length && used + neededHeight > maxHeight) {
       pageGroups.push([]);
-      used = currentHeaderHeight + BODY_TOP_GAP + PAGE_BOTTOM;
+      used = compactHeaderHeight + BODY_TOP_GAP + PAGE_BOTTOM;
     }
     pageGroups.at(-1).push(item);
     used += itemHeight;
   });
 
+  const pageCount = pageGroups.length;
   return pageGroups.map((pageItems, pageIndex) => {
+    const currentHeaderHeight = pageIndex ? compactHeaderHeight : fullHeaderHeight;
     let y = currentHeaderHeight + BODY_TOP_GAP;
     const layoutItems = [];
     for (const item of pageItems) {
@@ -228,6 +414,7 @@ export function paginateTranscriptItems(items, width, maxHeight, title, subtitle
         bubbleHeight,
         lines: item.lines,
         message: item.message,
+        tagRows: item.tagRows,
         tagHeight: item.tagHeight,
         textHeight: item.textHeight,
       });
@@ -239,24 +426,73 @@ export function paginateTranscriptItems(items, width, maxHeight, title, subtitle
       height: Math.max(520, Math.min(maxHeight, y + PAGE_BOTTOM)),
       items: layoutItems,
       title,
-      subtitle,
+      subtitle: legacySubtitle,
+      header,
+      pageCount,
       footer: 'visit claworld.love',
     };
   });
 }
 
-function svgDefs() {
+function pageTextValues(page) {
+  const data = passportData(page);
+  const values = [page.title, page.subtitle, page.footer];
+  values.push(...Object.values(data).filter((value) => typeof value === 'string'));
+  for (const block of data.contextBlocks) values.push(block.label, block.text);
+  for (const item of page.items) {
+    values.push(item.label || '', ...(item.lines || []));
+    if (Array.isArray(item.message?.tags)) values.push(...item.message.tags);
+  }
+  return values;
+}
+
+function svgDefs(page) {
+  const scriptFonts = fontCssRules(pageTextValues(page));
   return [
     '<defs>',
-    `<style><![CDATA[text { font-family: ${fontFamily()}; letter-spacing: 0; } .message-row:hover rect:last-of-type { filter: url(#comicLift); }]]></style>`,
+    `<style><![CDATA[text { font-family: ${fontFamily()}; font-weight: 700; letter-spacing: 0; } ${scriptFonts} .message-row:hover rect:last-of-type { filter: url(#comicLift); }]]></style>`,
     '<pattern id="comicGridMinor" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M 32 0 L 0 0 0 32" fill="none" stroke="#BED1D8" stroke-width="1" stroke-opacity="0.62"/></pattern>',
     '<pattern id="comicGridMajor" width="128" height="128" patternUnits="userSpaceOnUse"><path d="M 128 0 L 0 0 0 128" fill="none" stroke="#AABFC8" stroke-width="1.4" stroke-opacity="0.72"/></pattern>',
     '<linearGradient id="headerAccent" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#47B6FF"/><stop offset="52%" stop-color="#FF4EB4"/><stop offset="100%" stop-color="#FF8A2A"/></linearGradient>',
+    '<linearGradient id="modeOrbitGradient" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#8F72FF"/><stop offset="52%" stop-color="#FF4EB4"/><stop offset="100%" stop-color="#FF963D"/></linearGradient>',
     '<linearGradient id="leftAccent" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#58E58F"/><stop offset="100%" stop-color="#47B6FF"/></linearGradient>',
     '<linearGradient id="rightAccent" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#A871FF"/><stop offset="100%" stop-color="#FF4EB4"/></linearGradient>',
     '<filter id="comicLift" x="-6%" y="-16%" width="112%" height="132%"><feDropShadow dx="0" dy="2" stdDeviation="1.2" flood-color="#000000" flood-opacity="0.14"/></filter>',
     '</defs>',
   ].join('\n');
+}
+
+export function renderInlineTextSvg(
+  text,
+  x,
+  y,
+  {
+    fontSize,
+    fontWeight,
+    fill,
+    anchor = 'start',
+    className = '',
+  },
+) {
+  const runs = textRuns(text);
+  const baseClasses = String(className || '').split(/\s+/u).filter(Boolean);
+  if (runs.length === 1) {
+    const [run, script] = runs[0];
+    const classes = [...baseClasses, `font-${script}`].join(' ');
+    const weight = script === 'emoji' ? 400 : fontWeight;
+    const anchorAttribute = anchor === 'start' ? '' : ` text-anchor="${anchor}"`;
+    const visibleRun = script === 'emoji' ? emojiTextPresentation(run) : run;
+    return `<text class="${classes}" x="${fixed(x)}" y="${fixed(y)}"${anchorAttribute} font-size="${fontSize}" font-weight="${weight}" fill="${fill}">${escapeXml(visibleRun)}</text>`;
+  }
+
+  const anchorAttribute = anchor === 'start' ? '' : ` text-anchor="${anchor}"`;
+  const spans = runs.map(([run, script]) => {
+    const classes = [...baseClasses, `font-${script}`].join(' ');
+    const weight = script === 'emoji' ? 400 : fontWeight;
+    const visibleRun = script === 'emoji' ? emojiTextPresentation(run) : run;
+    return `<tspan class="${classes}" font-weight="${weight}">${escapeXml(visibleRun)}</tspan>`;
+  }).join('\n');
+  return `<text class="${baseClasses.join(' ')}" x="${fixed(x)}" y="${fixed(y)}"${anchorAttribute} font-size="${fontSize}" font-weight="${fontWeight}" fill="${fill}">${spans}</text>`;
 }
 
 function starPoints(cx, cy, radius) {
@@ -282,31 +518,590 @@ function decorativeStarSvg(cx, cy, radius, fill, accent) {
   ].join('\n');
 }
 
-function headerTitle(title) {
+function cleanHeaderTitle(title) {
   const clean = String(title ?? '').trim();
-  if (clean.startsWith('@')) return clean;
-  return clean ? `@${clean}` : '@claworld';
+  return clean.startsWith('@') ? clean.slice(1) : clean;
 }
 
-function renderHeader(page) {
+export function messageCountLabel(value) {
+  const raw = String(value ?? '').trim();
+  if (!/^\d+$/u.test(raw)) return '';
+  const count = Number(raw);
+  if (!Number.isSafeInteger(count) || count < 0) return '';
+  return `${count} ${count === 1 ? 'MSG' : 'MSGS'}`;
+}
+
+function participantsAccessibleText(peerIdentity, localIdentity, initiatedBy) {
+  const peer = peerIdentity || 'Peer';
+  const local = localIdentity || 'Me';
+  if (initiatedBy === 'peer') return `${peer} initiated a conversation with ${local}`;
+  if (initiatedBy === 'local') return `${local} initiated a conversation with ${peer}`;
+  return `Conversation between ${peer} and ${local}; initiator unknown`;
+}
+
+export function passportData(page) {
+  const header = page?.header && typeof page.header === 'object' ? page.header : null;
+  let mode = headerValue(header, 'chatMode', 'chat_mode', 'mode').toLowerCase();
+  if (!['direct', 'world'].includes(mode)) mode = 'chat';
+  const worldName = headerValue(header, 'worldName', 'world_name');
+  const localIdentity = headerValue(header, 'localIdentity', 'local_identity');
+  const peerIdentity = headerValue(header, 'peerIdentity', 'peer_identity');
+  const initiatedBy = normalizeInitiatedBy(headerValue(
+    header,
+    'initiatedBy',
+    'initiated_by',
+    'initiator',
+    'requestDirection',
+    'request_direction',
+  ));
+  let topic = headerValue(header, 'topic');
+  if (!topic && header) {
+    const peerName = bodyParticipantName(peerIdentity || '');
+    if (peerName && worldName) topic = `${peerName} — ${worldName}`;
+    else topic = peerName || worldName;
+  }
+  topic ||= cleanHeaderTitle(page?.title) || 'Claworld conversation';
+  const contextBlocks = headerContextBlocks(header, header ? '' : String(page?.subtitle || '').trim());
+  const context = contextBlocks.map((block) => (
+    block.label ? `${block.label}: ${block.text}` : block.text
+  )).join(' · ');
+  const dateLabel = headerValue(header, 'dateLabel', 'date_label');
+  const countLabel = messageCountLabel(headerValue(header, 'messageCount', 'message_count'));
+  return {
+    mode,
+    modeLabel: `${mode.toUpperCase()} · 1:1`,
+    topic,
+    worldName,
+    participants: participantsAccessibleText(peerIdentity, localIdentity, initiatedBy),
+    peerIdentity: peerIdentity || 'UNKNOWN',
+    localIdentity: localIdentity || 'UNKNOWN',
+    initiatedBy,
+    context,
+    contextBlocks,
+    reportType: headerValue(header, 'reportType', 'report_type').toLowerCase(),
+    dateLabel,
+    countLabel,
+    meta: [dateLabel, countLabel].filter(Boolean).join(' · '),
+  };
+}
+
+function identityDefaultGlyphUnits(character) {
+  if (/\s/u.test(character)) return 0.25;
+  if (character === '…') return 1;
+  if (character === 'M') return 0.9;
+  if (character === 'W') return 0.96;
+  if (character === 'm') return 1;
+  if (character === 'w') return 0.93;
+  if ('Iilj'.includes(character)) return 0.35;
+  if ('ft'.includes(character)) return 0.44;
+  if (character === 'r') return 0.48;
+  if ('csyz'.includes(character)) return 0.55;
+  if ('OQHNUDG'.includes(character)) return 0.8;
+  if (/\p{Lu}/u.test(character)) return 0.72;
+  if (/\p{Ll}/u.test(character)) return 0.63;
+  if (/\p{Nd}/u.test(character)) return 0.62;
+  return Math.max(0.5, textUnits(character) * 1.08);
+}
+
+export function identityNameRenderWidth(name, fontSize) {
+  let totalUnits = 0;
+  for (const cluster of graphemeClusters(name)) {
+    for (const [run, script] of textRuns(cluster)) {
+      if (script === 'default') {
+        totalUnits += [...run].reduce((sum, character) => sum + identityDefaultGlyphUnits(character), 0);
+      } else if (['cjk', 'japanese', 'korean', 'emoji'].includes(script)) {
+        totalUnits += textUnits(run) * 1.02;
+      } else {
+        totalUnits += textUnits(run) * 1.16;
+      }
+    }
+  }
+  return totalUnits * fontSize;
+}
+
+export function topicRenderUnits(text) {
+  return identityNameRenderWidth(text, TITLE_FONT_SIZE) / TITLE_FONT_SIZE;
+}
+
+function wrapTopicText(text, maxUnits) {
+  const lines = [];
+  for (const paragraph of String(text || '').split(/\r?\n/u)) {
+    let current = '';
+    for (const token of wrapTokens(paragraph)) {
+      if (/^\s+$/u.test(token)) {
+        if (current && topicRenderUnits(`${current} `) <= maxUnits) current += ' ';
+        continue;
+      }
+      if (current && topicRenderUnits(current + token) > maxUnits) {
+        lines.push(current.trimEnd());
+        current = '';
+      }
+      if (topicRenderUnits(token) > maxUnits) {
+        for (const cluster of graphemeClusters(token)) {
+          if (current && topicRenderUnits(current + cluster) > maxUnits) {
+            lines.push(current.trimEnd());
+            current = '';
+          }
+          current += cluster;
+        }
+      } else {
+        current += token;
+      }
+    }
+    if (current || !lines.length) lines.push(current.trimEnd());
+  }
+  return lines;
+}
+
+function ellipsizeTopicText(text, maxUnits, suffix = '…') {
+  const value = String(text || '');
+  if (topicRenderUnits(value) <= maxUnits) return value;
+  const allowed = Math.max(0, maxUnits - topicRenderUnits(suffix));
+  let kept = '';
+  for (const cluster of graphemeClusters(value)) {
+    if (topicRenderUnits(kept + cluster) > allowed) break;
+    kept += cluster;
+  }
+  return `${kept.trimEnd()}${suffix}`;
+}
+
+export function topicLines(topic, maxUnits = HEADER_TOPIC_MAX_UNITS) {
+  const lines = wrapTopicText(String(topic || '').trim(), maxUnits);
+  if (lines.length <= HEADER_TOPIC_MAX_LINES) return lines.length ? lines : ['Claworld conversation'];
+  const visible = lines.slice(0, HEADER_TOPIC_MAX_LINES - 1);
+  const remainder = lines.slice(HEADER_TOPIC_MAX_LINES - 1)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(' ');
+  visible.push(ellipsizeTopicText(remainder, maxUnits));
+  return visible;
+}
+
+function pageLabel(page) {
+  return `${page.page} / ${page.pageCount || 1}`;
+}
+
+function modeBadgeWidth(label, compact = false) {
+  const fontSize = compact ? 11 : 12;
+  const horizontalPad = compact ? 20 : 24;
+  return Math.max(compact ? 92 : 104, Math.trunc(textUnits(label) * fontSize + horizontalPad));
+}
+
+function smallBadgeWidth(label, minimum) {
+  return Math.max(minimum, Math.trunc(textUnits(label) * 12 + 24));
+}
+
+function modeBadgeSvg(x, y, mode, label, compact = false) {
+  const width = modeBadgeWidth(label, compact);
+  const height = compact ? 26 : 28;
+  const fill = mode === 'direct'
+    ? THEME.directBadge
+    : mode === 'world'
+      ? THEME.worldBadge
+      : THEME.chatBadge;
+  return [
+    `<g class="mode-badge mode-${escapeXml(mode)}">`,
+    `<rect x="${fixed(x + 3)}" y="${fixed(y + 3)}" width="${width}" height="${height}" rx="${fixed(height / 2)}" fill="${BLACK}"/>`,
+    `<rect x="${fixed(x)}" y="${fixed(y)}" width="${width}" height="${height}" rx="${fixed(height / 2)}" fill="${fill}" stroke="${BLACK}" stroke-width="2.5"/>`,
+    renderInlineTextSvg(label, x + width / 2, y + (compact ? 17.5 : 19), {
+      fontSize: compact ? 11 : 12,
+      fontWeight: 900,
+      fill: BLACK,
+      anchor: 'middle',
+    }),
+    '</g>',
+  ].join('\n');
+}
+
+export function secondaryBadgeSvg(x, y, width, label) {
+  const clipped = ellipsizeTopicText(label, Math.max(4, (width - 22) / 12));
+  return [
+    '<g class="world-name-badge">',
+    `<rect x="${fixed(x)}" y="${fixed(y)}" width="${fixed(width)}" height="25" rx="12.5" fill="#FFFFFF" fill-opacity="0.72" stroke="${BLACK}" stroke-width="2" stroke-dasharray="4 3"/>`,
+    renderInlineTextSvg(clipped, x + width / 2, y + 17, {
+      fontSize: 12,
+      fontWeight: 800,
+      fill: THEME.muted,
+      anchor: 'middle',
+    }),
+    '</g>',
+  ].join('\n');
+}
+
+function smallBadgeSvg(x, y, width, label, fill, className, accessibleLabel = '') {
+  const aria = accessibleLabel ? ` role="img" aria-label="${escapeXml(accessibleLabel)}"` : '';
+  return [
+    `<g class="${className}"${aria}>`,
+    accessibleLabel ? `<title>${escapeXml(accessibleLabel)}</title>` : '',
+    `<rect x="${fixed(x + 2)}" y="${fixed(y + 3)}" width="${fixed(width)}" height="26" rx="13" fill="${BLACK}"/>`,
+    `<rect x="${fixed(x)}" y="${fixed(y)}" width="${fixed(width)}" height="26" rx="13" fill="${fill}" stroke="${BLACK}" stroke-width="2"/>`,
+    renderInlineTextSvg(label, x + width / 2, y + 18, {
+      fontSize: 12,
+      fontWeight: 900,
+      fill: BLACK,
+      anchor: 'middle',
+    }),
+    '</g>',
+  ].join('\n');
+}
+
+export function splitIdentity(identity) {
+  const value = String(identity || '').trim();
+  const markerIndex = value.lastIndexOf('#');
+  if (markerIndex > 0) {
+    const name = value.slice(0, markerIndex).trim();
+    const code = value.slice(markerIndex + 1);
+    if (name && code && !/\s/u.test(code)) return [name, `#${code}`];
+  }
+  return [value, ''];
+}
+
+export function ellipsizeIdentityParts(identity, maxWidth, nameFontSize, codeFontSize) {
+  const [name, code] = splitIdentity(identity);
+  const codeWidth = identityNameRenderWidth(code, codeFontSize);
+  const nameWidth = identityNameRenderWidth(name, nameFontSize);
+  const codeGap = code ? IDENTITY_CODE_GAP : 0;
+  if (nameWidth + codeGap + codeWidth <= maxWidth) return [name, code];
+  if (code) {
+    const nameBudget = maxWidth - codeGap - codeWidth;
+    if (nameBudget >= identityNameRenderWidth('…', nameFontSize)) {
+      return [ellipsizeIdentityName(name, nameBudget, nameFontSize), code];
+    }
+  }
+  return [ellipsizeIdentityName(String(identity || '').trim(), maxWidth, nameFontSize), ''];
+}
+
+function ellipsizeIdentityName(value, maxWidth, fontSize) {
+  const name = String(value || '').trim();
+  if (identityNameRenderWidth(name, fontSize) <= maxWidth) return name;
+  const suffix = '…';
+  const suffixWidth = identityNameRenderWidth(suffix, fontSize);
+  if (suffixWidth > maxWidth) return '';
+  let kept = '';
+  for (const cluster of graphemeClusters(name)) {
+    if (identityNameRenderWidth(`${kept}${cluster}`, fontSize) + suffixWidth > maxWidth) break;
+    kept += cluster;
+  }
+  return `${kept.trimEnd()}${suffix}`;
+}
+
+function renderIdentityTextSvg(name, code, x, y, nameFontSize, codeFontSize, className) {
+  const nameWidth = identityNameRenderWidth(name, nameFontSize);
+  if (!code) {
+    return renderInlineTextSvg(name, x, y, {
+      fontSize: nameFontSize,
+      fontWeight: 900,
+      fill: BLACK,
+      anchor: 'middle',
+      className: `${className}-name identity-name identity-text`,
+    });
+  }
+  const codeWidth = identityNameRenderWidth(code, codeFontSize);
+  const combinedWidth = nameWidth + IDENTITY_CODE_GAP + codeWidth;
+  const dividerX = x - combinedWidth / 2 + nameWidth;
+  return [
+    renderInlineTextSvg(name, dividerX, y, {
+      fontSize: nameFontSize,
+      fontWeight: 900,
+      fill: BLACK,
+      anchor: 'end',
+      className: `${className}-name identity-name identity-text`,
+    }),
+    renderInlineTextSvg(code, dividerX + IDENTITY_CODE_GAP, y, {
+      fontSize: codeFontSize,
+      fontWeight: 800,
+      fill: '#68645F',
+      className: `${className}-code identity-code identity-text`,
+    }),
+  ].join('\n');
+}
+
+export function identityLabelSvg(x, y, width, identity, dotFill, className, compact) {
+  const height = compact ? 36 : 40;
+  const radius = compact ? 5 : 6;
+  const nameFontSize = compact ? IDENTITY_COMPACT_NAME_FONT_SIZE : IDENTITY_NAME_FONT_SIZE;
+  const codeFontSize = compact ? IDENTITY_COMPACT_CODE_FONT_SIZE : IDENTITY_CODE_FONT_SIZE;
+  const identityY = y + (compact ? 28 : 30);
+  const dotWidth = radius * 2;
+  const availablePx = Math.max(
+    18,
+    width - dotWidth - IDENTITY_DOT_GAP - IDENTITY_EDGE_PADDING * 2,
+  );
+  const [visibleName, visibleCode] = ellipsizeIdentityParts(
+    identity,
+    availablePx,
+    nameFontSize,
+    codeFontSize,
+  );
+  const nameWidth = identityNameRenderWidth(visibleName, nameFontSize);
+  const codeWidth = identityNameRenderWidth(visibleCode, codeFontSize);
+  const visibleGap = visibleCode ? IDENTITY_CODE_GAP : 0;
+  const textWidth = nameWidth + visibleGap + codeWidth;
+  const groupWidth = dotWidth + IDENTITY_DOT_GAP + textWidth;
+  const groupX = x + (width - groupWidth) / 2;
+  const dotX = groupX + radius;
+  const textCenterX = groupX + dotWidth + IDENTITY_DOT_GAP + textWidth / 2;
+  return [
+    `<g class="identity-label ${className}">`,
+    `<title>${escapeXml(identity)}</title>`,
+    `<circle cx="${fixed(dotX)}" cy="${fixed(y + height / 2)}" r="${radius}" fill="${dotFill}" stroke="${BLACK}" stroke-width="2"/>`,
+    renderIdentityTextSvg(visibleName, visibleCode, textCenterX, identityY, nameFontSize, codeFontSize, className),
+    '</g>',
+  ].join('\n');
+}
+
+export function identityRouteSvg(x, y, width, peerIdentity, localIdentity, initiatedBy, compact = false) {
+  const height = compact ? 36 : 40;
+  const gap = compact ? 8 : 12;
+  const centerWidth = compact ? 42 : 46;
+  const routeCenter = x + width / 2;
+  const centerX = routeCenter - centerWidth / 2;
+  const peerWidth = Math.max(48, centerX - gap - x);
+  const localX = centerX + centerWidth + gap;
+  const localWidth = Math.max(48, x + width - localX);
+  const [relationLabel, accessibleRelation] = initiatedBy === 'peer'
+    ? ['→', 'Peer initiated the conversation with Me']
+    : initiatedBy === 'local'
+      ? ['←', 'Me initiated the conversation with Peer']
+      : ['↔', 'The conversation initiator is unknown'];
+  const accessible = `${accessibleRelation}. Peer: ${peerIdentity || 'Peer'}. Me: ${localIdentity || 'Me'}.`;
+  const relationHeight = compact ? 24 : 26;
+  const relationY = y + (height - relationHeight) / 2;
+  return [
+    `<g class="conversation-participants identity-route" role="img" aria-label="${escapeXml(accessible)}">`,
+    `<title>${escapeXml(accessible)}</title>`,
+    identityLabelSvg(x, y, peerWidth, peerIdentity || 'UNKNOWN', THEME.leftLabel, 'identity-peer', compact),
+    `<rect x="${fixed(centerX + 2)}" y="${fixed(relationY + 3)}" width="${fixed(centerWidth)}" height="${relationHeight}" rx="${fixed(relationHeight / 2)}" fill="${BLACK}"/>`,
+    `<rect class="conversation-relation relation-${initiatedBy || 'unknown'}" x="${fixed(centerX)}" y="${fixed(relationY)}" width="${fixed(centerWidth)}" height="${relationHeight}" rx="${fixed(relationHeight / 2)}" fill="#FFFFFF" stroke="${BLACK}" stroke-width="2"/>`,
+    renderInlineTextSvg(relationLabel, centerX + centerWidth / 2, relationY + (compact ? 17 : 19), {
+      fontSize: compact ? 15 : 17,
+      fontWeight: 900,
+      fill: BLACK,
+      anchor: 'middle',
+      className: 'conversation-relation-label',
+    }),
+    identityLabelSvg(localX, y, localWidth, localIdentity || 'UNKNOWN', THEME.rightLabel, 'identity-local', compact),
+    '</g>',
+  ].join('\n');
+}
+
+export function contextFieldLabelLines(kind, label) {
+  const semanticLabels = {
+    peerGlobalProfile: ['PEER', 'PROFILE'],
+    peerWorldMembershipProfile: ['PEER', 'WORLD'],
+    worldContext: ['WORLD', 'CONTEXT'],
+  };
+  if (semanticLabels[kind]) return semanticLabels[kind];
+  const words = String(label || '').replaceAll('·', ' ').split(/\s+/u).filter(Boolean);
+  if (words.length <= 1) return words.length ? words : ['PROFILE'];
+  return [words[0], words.slice(1).join(' ')];
+}
+
+export function contextFieldIconSvg(cx, cy, kind) {
+  if (kind === 'worldContext') {
+    return [
+      '<g class="context-icon context-icon-world">',
+      `<circle cx="${fixed(cx)}" cy="${fixed(cy)}" r="8.2" fill="${THEME.worldBadge}" stroke="${BLACK}" stroke-width="2"/>`,
+      `<path d="M${fixed(cx - 7.1)} ${fixed(cy)} H${fixed(cx + 7.1)} M${fixed(cx)} ${fixed(cy - 7.1)} C${fixed(cx - 3.5)} ${fixed(cy - 2.4)} ${fixed(cx - 3.5)} ${fixed(cy + 2.4)} ${fixed(cx)} ${fixed(cy + 7.1)} M${fixed(cx)} ${fixed(cy - 7.1)} C${fixed(cx + 3.5)} ${fixed(cy - 2.4)} ${fixed(cx + 3.5)} ${fixed(cy + 2.4)} ${fixed(cx)} ${fixed(cy + 7.1)}" fill="none" stroke="${BLACK}" stroke-width="1.3" stroke-linecap="round"/>`,
+      '</g>',
+    ].join('\n');
+  }
+  return [
+    '<g class="context-icon context-icon-profile">',
+    `<circle cx="${fixed(cx)}" cy="${fixed(cy - 6.5)}" r="4.7" fill="${THEME.leftLabel}" stroke="${BLACK}" stroke-width="1.9"/>`,
+    `<path d="M${fixed(cx - 8)} ${fixed(cy + 9)} C${fixed(cx - 8)} ${fixed(cy + 2)} ${fixed(cx - 4)} ${fixed(cy - 0.5)} ${fixed(cx)} ${fixed(cy - 0.5)} C${fixed(cx + 4)} ${fixed(cy - 0.5)} ${fixed(cx + 8)} ${fixed(cy + 2)} ${fixed(cx + 8)} ${fixed(cy + 9)} Z" fill="${THEME.leftLabel}" stroke="${BLACK}" stroke-width="1.9" stroke-linejoin="round"/>`,
+    '</g>',
+  ].join('\n');
+}
+
+export function boundedContextLines(text, contentWidth) {
+  const value = String(text || '').replace(/\s+/gu, ' ').trim();
+  if (!value) return [];
+  const maxUnits = Math.max(4, contentWidth / CONTEXT_TEXT_FONT_SIZE);
+  const lines = wrapText(value, maxUnits);
+  const visible = lines.slice(0, CONTEXT_TEXT_MAX_LINES);
+  if (lines.length > CONTEXT_TEXT_MAX_LINES && visible.length) {
+    const lastIndex = visible.length - 1;
+    const last = ellipsizeText(visible[lastIndex], Math.max(0, maxUnits - textUnits('…')), '').trimEnd();
+    visible[lastIndex] = last ? `${last}…` : '…';
+  }
+  return visible;
+}
+
+export function renderContextCard(x, y, width, block) {
+  const kind = String(block?.kind || 'profile');
+  const label = String(block?.label || 'Profile').trim().toUpperCase();
+  const text = String(block?.text || '').replace(/\s+/gu, ' ').trim();
+  const labelWidth = 132;
+  const dividerX = x + labelWidth;
+  const contentX = dividerX + 14;
+  const contentWidth = Math.max(48, x + width - 14 - contentX);
+  const lines = boundedContextLines(text, contentWidth);
+  const labelLines = contextFieldLabelLines(kind, label);
+  const classKind = kind.toLowerCase().replace(/[^\p{Letter}\p{Number}]+/gu, '-').replace(/^-|-$/gu, '') || 'profile';
+  const accent = kind === 'worldContext' ? THEME.worldBadge : THEME.leftLabel;
+  const accessible = text ? `${label}: ${text}` : label;
+  const parts = [
+    `<g class="passport-context-field context-${classKind}" role="group" aria-label="${escapeXml(accessible)}">`,
+    `<title>${escapeXml(accessible)}</title>`,
+    `<rect x="${fixed(x + 3)}" y="${fixed(y + 3)}" width="${fixed(width)}" height="${CONTEXT_CARD_HEIGHT}" rx="15" fill="${BLACK}"/>`,
+    `<rect x="${fixed(x)}" y="${fixed(y)}" width="${fixed(width)}" height="${CONTEXT_CARD_HEIGHT}" rx="15" fill="${THEME.passportStrip}" stroke="${BLACK}" stroke-width="2.5"/>`,
+    `<rect x="${fixed(x + 6)}" y="${fixed(y + 13)}" width="6" height="28" rx="3" fill="${accent}"/>`,
+    contextFieldIconSvg(x + 36, y + CONTEXT_CARD_HEIGHT / 2, kind),
+    `<line x1="${fixed(dividerX)}" y1="${fixed(y + 8)}" x2="${fixed(dividerX)}" y2="${fixed(y + CONTEXT_CARD_HEIGHT - 8)}" stroke="${BLACK}" stroke-width="2" stroke-dasharray="3 3" opacity="0.45"/>`,
+  ];
+  const labelMaxUnits = Math.max(4, (labelWidth - 48) / CONTEXT_LABEL_FONT_SIZE);
+  const labelStartY = y + (labelLines.length > 1 ? 22 : 31);
+  labelLines.forEach((line, index) => {
+    parts.push(renderInlineTextSvg(ellipsizeText(line, labelMaxUnits, '…'), x + 84, labelStartY + index * 16, {
+      fontSize: CONTEXT_LABEL_FONT_SIZE,
+      fontWeight: 900,
+      fill: BLACK,
+      anchor: 'middle',
+      className: `context-field-label ${index ? 'context-field-label-secondary' : 'context-field-label-primary'}`,
+    }));
+  });
+  const contentStartY = y + CONTEXT_CARD_HEIGHT / 2 + CONTEXT_TEXT_BASELINE_CENTER_OFFSET
+    - Math.max(0, lines.length - 1) * CONTEXT_TEXT_LINE_HEIGHT / 2;
+  lines.forEach((line, index) => {
+    parts.push(renderInlineTextSvg(line, contentX, contentStartY + index * CONTEXT_TEXT_LINE_HEIGHT, {
+      fontSize: CONTEXT_TEXT_FONT_SIZE,
+      fontWeight: 800,
+      fill: THEME.muted,
+      className: 'conversation-context context-field-text',
+    }));
+  });
+  parts.push('</g>');
+  return parts.join('\n');
+}
+
+export function renderContextCards(x, y, width, blocks) {
+  return blocks.slice(0, 2).map((block, index) => renderContextCard(
+    x,
+    y + index * (CONTEXT_CARD_HEIGHT + CONTEXT_CARD_GAP),
+    width,
+    block,
+  )).join('\n');
+}
+
+export function modeEmblemSvg(cx, cy, mode) {
+  if (mode === 'world') {
+    return [
+      '<g class="mode-emblem mode-emblem-world">',
+      `<circle class="mode-emblem-shadow mode-emblem-world-shadow" cx="${fixed(cx + 2)}" cy="${fixed(cy + 2.5)}" r="17" fill="${BLACK}"/>`,
+      `<ellipse class="mode-emblem-orbit mode-emblem-orbit-back" cx="${fixed(cx)}" cy="${fixed(cy)}" rx="25" ry="8" fill="none" stroke="url(#modeOrbitGradient)" stroke-width="5" transform="rotate(-13 ${fixed(cx)} ${fixed(cy)})"/>`,
+      '<g class="mode-emblem-globe">',
+      `<circle class="mode-emblem-planet-shell" cx="${fixed(cx)}" cy="${fixed(cy)}" r="17" fill="#FFFFFF" stroke="${BLACK}" stroke-width="3"/>`,
+      `<circle class="mode-emblem-planet-core" cx="${fixed(cx)}" cy="${fixed(cy)}" r="11" fill="${THEME.worldBadge}" stroke="${BLACK}" stroke-width="2.5"/>`,
+      '</g>',
+      `<path class="mode-emblem-orbit mode-emblem-orbit-front" d="M${fixed(cx - 25)} ${fixed(cy)} A25 8 0 0 0 ${fixed(cx + 25)} ${fixed(cy)}" fill="none" stroke="url(#modeOrbitGradient)" stroke-width="5" transform="rotate(-13 ${fixed(cx)} ${fixed(cy)})"/>`,
+      '</g>',
+    ].join('\n');
+  }
+  if (mode === 'direct') {
+    return [
+      `<g class="mode-emblem mode-emblem-direct" transform="translate(${fixed(cx - 32)} ${fixed(cy - 26)})">`,
+      '<g class="mode-emblem-shadow mode-emblem-direct-shadow">',
+      `<path class="mode-emblem-direct-shadow-back" d="M8 15.7883L8.5 14.5L36 15.7883V38.5H23L15 46.5V38.5H8V15.7883Z" fill="${BLACK}"/>`,
+      `<path class="mode-emblem-direct-shadow-front" d="M32 23H43.5L59.5 23.5L60 25V44.8772H52V52L44 44.8772H35L32 42V23Z" fill="${BLACK}"/>`,
+      '</g>',
+      `<path class="mode-emblem-chat-bubble mode-emblem-chat-bubble-back" d="M10 15H38V34H25L17 42V34H10V15Z" fill="#FFFFFF" stroke="${BLACK}" stroke-width="3" stroke-linejoin="round"/>`,
+      `<path class="mode-emblem-chat-bubble mode-emblem-chat-bubble-front" d="M33 24H58V41H50V48L42 41H33V24Z" fill="${THEME.directBadge}" stroke="${BLACK}" stroke-width="3" stroke-linejoin="round"/>`,
+      '</g>',
+    ].join('\n');
+  }
+  return decorativeStarSvg(cx, cy, 17, '#FFFFFF', 'url(#headerAccent)');
+}
+
+export function renderFullHeader(page) {
   const x = CANVAS_MARGIN + 26;
   const y = HEADER_Y;
   const width = page.width - (CANVAS_MARGIN + 26) * 2;
-  const height = headerCardHeight(page.subtitle);
-  const title = clipDisplay(headerTitle(page.title), 32);
-  const subtitle = headerSubtitleLines(page.subtitle)
-    .map((line, index) => `<text class="header-subtitle-line" x="${fixed(x + 35)}" y="${fixed(y + 70 + index * HEADER_SUBTITLE_LINE_HEIGHT)}" font-size="15" font-weight="600" fill="${THEME.muted}">${escapeXml(line)}</text>`)
-    .join('\n');
+  const data = passportData(page);
+  const height = fullHeaderCardHeight(data.contextBlocks);
+  const modeWidth = modeBadgeWidth(data.modeLabel);
+  const currentPageLabel = pageLabel(page);
+  const pageWidth = smallBadgeWidth(currentPageLabel, 48);
+  const countWidth = data.countLabel ? smallBadgeWidth(data.countLabel, 48) : 0;
+  const rightEdge = x + width - 20;
+  const pageX = rightEdge - pageWidth;
+  const countX = pageX - countWidth - (data.countLabel ? 8 : 0);
+  const secondaryX = x + 20 + modeWidth + 10;
+  const secondaryRight = data.countLabel ? countX - 10 : pageX - 10;
+  const secondaryWidth = Math.max(0, secondaryRight - secondaryX);
+  const topicCenterX = x + width / 2;
+  const emblemCenterX = x + width - 47;
+  const topicSafeRight = emblemCenterX - HEADER_TOPIC_EMBLEM_HALF_WIDTH - HEADER_TOPIC_EMBLEM_GAP;
+  const topicHalfWidth = Math.min(topicCenterX - (x + 24), topicSafeRight - topicCenterX);
+  const topicMaxUnits = Math.max(8, Math.min(HEADER_TOPIC_MAX_UNITS, topicHalfWidth * 2 / TITLE_FONT_SIZE));
+  const lines = topicLines(data.topic, topicMaxUnits);
+  const topicY = y + (lines.length > 1 ? 71 : 84);
+  const parts = [
+    '<g class="conversation-passport conversation-passport-full">',
+    `<rect x="${x + 11}" y="${y + 7}" width="${width + 2}" height="${height + 10}" rx="24" fill="${BLACK}"/>`,
+    `<rect x="${x + 7}" y="${y + 6}" width="${width}" height="${height + 4}" rx="24" fill="url(#headerAccent)"/>`,
+    `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="24" fill="${THEME.headerFill}" stroke="${BLACK}" stroke-width="4"/>`,
+    modeBadgeSvg(x + 20, y + 14, data.mode, data.modeLabel),
+  ];
+  if (secondaryWidth >= 54) {
+    parts.push(secondaryBadgeSvg(secondaryX, y + 16, secondaryWidth, data.worldName || 'CLAWORLD CHAT'));
+  }
+  if (data.countLabel) {
+    parts.push(smallBadgeSvg(countX, y + 15, countWidth, data.countLabel, '#FFFFFF', 'message-count-badge', data.countLabel));
+  }
+  parts.push(smallBadgeSvg(pageX, y + 15, pageWidth, currentPageLabel, '#F1E5FF', 'page-badge'));
+  lines.forEach((line, index) => {
+    parts.push(renderInlineTextSvg(line, topicCenterX, topicY + index * HEADER_TOPIC_LINE_HEIGHT, {
+      fontSize: TITLE_FONT_SIZE,
+      fontWeight: 900,
+      fill: BLACK,
+      anchor: 'middle',
+      className: 'conversation-topic',
+    }));
+  });
+  parts.push(
+    modeEmblemSvg(x + width - 47, y + 82, data.mode),
+    identityRouteSvg(x + 18, y + 104, width - 36, data.peerIdentity, data.localIdentity, data.initiatedBy),
+  );
+  if (data.contextBlocks.length) {
+    parts.push(renderContextCards(x + 18, y + 156, width - 36, data.contextBlocks));
+  }
+  parts.push('</g>');
+  return parts.join('\n');
+}
+
+export function renderCompactHeader(page) {
+  const x = CANVAS_MARGIN + 26;
+  const y = HEADER_Y;
+  const width = page.width - (CANVAS_MARGIN + 26) * 2;
+  const data = passportData(page);
+  const modeWidth = modeBadgeWidth(data.modeLabel, true);
+  const currentPageLabel = pageLabel(page);
+  const pageWidth = smallBadgeWidth(currentPageLabel, 48);
+  const topicX = x + 18 + modeWidth + 12;
+  const topicRight = x + width - 18 - pageWidth - 12;
+  const topicUnits = Math.max(9, Math.min(HEADER_COMPACT_TOPIC_MAX_UNITS, (topicRight - topicX) / 18));
+  const topic = ellipsizeText(data.topic, topicUnits, '…');
   return [
-    `<rect x="${x + 11}" y="${y + 6}" width="${width + 2}" height="${height + 10}" rx="22" fill="${BLACK}"/>`,
-    `<rect x="${x + 7}" y="${y + 6}" width="${width}" height="${height + 4}" rx="22" fill="url(#headerAccent)"/>`,
-    `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="22" fill="${THEME.headerFill}" stroke="${BLACK}" stroke-width="4"/>`,
-    `<text x="${x + 28}" y="${y + 43}" font-size="${TITLE_FONT_SIZE}" font-weight="900" fill="${BLACK}">${escapeXml(title)}</text>`,
-    subtitle,
-    decorativeStarSvg(x + width - 62, y + 34, 22, '#FFFFFF', 'url(#headerAccent)'),
-    `<circle cx="${x + width - 23}" cy="${y + 55}" r="9" fill="#72E3C0" stroke="${BLACK}" stroke-width="3"/>`,
-    `<circle cx="${x + width - 25}" cy="${y + 53}" r="9" fill="#72E3C0" stroke="${BLACK}" stroke-width="3"/>`,
+    '<g class="conversation-passport conversation-passport-compact">',
+    `<rect x="${x + 9}" y="${y + 6}" width="${width + 1}" height="${HEADER_CARD_HEIGHT_COMPACT + 7}" rx="20" fill="${BLACK}"/>`,
+    `<rect x="${x + 6}" y="${y + 5}" width="${width}" height="${HEADER_CARD_HEIGHT_COMPACT + 2}" rx="20" fill="url(#headerAccent)"/>`,
+    `<rect x="${x}" y="${y}" width="${width}" height="${HEADER_CARD_HEIGHT_COMPACT}" rx="20" fill="${THEME.headerFill}" stroke="${BLACK}" stroke-width="4"/>`,
+    modeBadgeSvg(x + 18, y + 12, data.mode, data.modeLabel, true),
+    renderInlineTextSvg(topic, topicX, y + 35, {
+      fontSize: 18,
+      fontWeight: 900,
+      fill: BLACK,
+      className: 'conversation-topic',
+    }),
+    smallBadgeSvg(x + width - 18 - pageWidth, y + 12, pageWidth, currentPageLabel, '#F1E5FF', 'page-badge'),
+    identityRouteSvg(x + 18, y + 50, width - 36, data.peerIdentity, data.localIdentity, data.initiatedBy, true),
+    '</g>',
   ].join('\n');
+}
+
+export function renderHeader(page) {
+  return page.page > 1 ? renderCompactHeader(page) : renderFullHeader(page);
 }
 
 function diamondSvg(cx, cy, radius, fill) {
@@ -325,7 +1120,12 @@ function renderTimeSvg(page, item) {
     diamondSvg(x - 28, y + 16, 13, '#FF5BE2'),
     `<rect x="${fixed(x + 3)}" y="${y + 4}" width="${labelWidthValue}" height="30" rx="15" fill="${BLACK}"/>`,
     `<rect x="${fixed(x)}" y="${y}" width="${labelWidthValue}" height="30" rx="15" fill="${THEME.timeFill}" stroke="${BLACK}" stroke-width="3"/>`,
-    `<text x="${fixed(page.width / 2)}" y="${y + 21}" text-anchor="middle" font-size="${FONT_SIZE}" font-weight="700" fill="${BLACK}">${escapeXml(label)}</text>`,
+    renderInlineTextSvg(label, page.width / 2, y + 21, {
+      fontSize: FONT_SIZE,
+      fontWeight: 700,
+      fill: BLACK,
+      anchor: 'middle',
+    }),
     diamondSvg(x + labelWidthValue + 28, y + 16, 13, '#5FE0A7'),
     '</g>',
   ].join('\n');
@@ -379,7 +1179,12 @@ function fallbackTagSvg(tag, x, y) {
     `<title>${escapeXml(label)}</title>`,
     `<rect x="${fixed(x + 3)}" y="${fixed(y + 4)}" width="${width}" height="${TAG_ICON_SIZE}" rx="9" fill="${BLACK}"/>`,
     `<rect x="${fixed(x)}" y="${fixed(y)}" width="${width}" height="${TAG_ICON_SIZE}" rx="9" fill="#F6F1FF" stroke="${BLACK}" stroke-width="2.5"/>`,
-    `<text x="${fixed(x + width / 2)}" y="${fixed(y + 20.5)}" text-anchor="middle" font-size="${LABEL_FONT_SIZE}" font-weight="900" fill="${BLACK}">${escapeXml(label)}</text>`,
+    renderInlineTextSvg(label, x + width / 2, y + 20.5, {
+      fontSize: LABEL_FONT_SIZE,
+      fontWeight: 900,
+      fill: BLACK,
+      anchor: 'middle',
+    }),
     '</g>',
   ].join('\n');
 }
@@ -414,25 +1219,45 @@ function renderTagIconsSvg(tags, x, y) {
   return parts.join('\n');
 }
 
+function renderTagRowsSvg(rows, x, y) {
+  return rows.map((tags, index) => renderTagIconsSvg(
+    tags,
+    x,
+    y + index * (TAG_ICON_SIZE + TAG_ROW_GAP),
+  )).join('\n');
+}
+
 function renderMessageSvg(item) {
   const { message } = item;
   const colors = sideColors(message.side);
-  const accessibleLabel = escapeXml(`${message.participantLabel}: ${ellipsizeText(message.text, 42)}`);
+  const accessibleLabel = escapeXml(`${bodyParticipantName(message.participantLabel)}: ${message.text}`);
   const parts = [
     `<g class="message-row ${message.side}" role="listitem" aria-label="${accessibleLabel}">`,
     `<title>${accessibleLabel}</title>`,
     bubbleLayersSvg(item, colors),
     `<rect x="${item.labelX}" y="${item.labelY}" width="${item.labelWidth}" height="${LABEL_HEIGHT}" rx="9" fill="${colors.label}" stroke="${BLACK}" stroke-width="3"/>`,
-    `<text x="${fixed(item.labelX + item.labelWidth / 2)}" y="${item.labelY + 21}" text-anchor="middle" font-size="${LABEL_FONT_SIZE}" font-weight="900" fill="${BLACK}">${escapeXml(item.label)}</text>`,
+    renderInlineTextSvg(item.label, item.labelX + item.labelWidth / 2, item.labelY + 21, {
+      fontSize: LABEL_FONT_SIZE,
+      fontWeight: 900,
+      fill: BLACK,
+      anchor: 'middle',
+    }),
   ];
   const textX = item.bubbleX + BUBBLE_PAD_X;
   let textY = item.bubbleY + BUBBLE_PAD_Y + 17;
   for (const line of item.lines) {
-    parts.push(`<text x="${textX}" y="${textY}" font-size="${FONT_SIZE}" font-weight="800" fill="${BLACK}">${escapeXml(line)}</text>`);
+    parts.push(renderInlineTextSvg(line, textX, textY, {
+      fontSize: FONT_SIZE,
+      fontWeight: 800,
+      fill: BLACK,
+    }));
     textY += LINE_HEIGHT;
   }
   if (message.tags.length) {
-    parts.push(renderTagIconsSvg(message.tags, textX, textY + TAG_ICON_TOP_GAP));
+    const tagRows = item.tagRows?.length
+      ? item.tagRows
+      : packTagRows(visibleTags(message.tags), item.width - BUBBLE_PAD_X * 2);
+    parts.push(renderTagRowsSvg(tagRows, textX, textY + TAG_ICON_TOP_GAP));
   }
   parts.push('</g>');
   return parts.join('\n');
@@ -441,12 +1266,19 @@ function renderMessageSvg(item) {
 export function renderTranscriptPageSvg(page) {
   const titleId = `claworld-report-title-${page.page}`;
   const descriptionId = `claworld-report-desc-${page.page}`;
-  const description = `${page.title}. ${page.subtitle}. ${page.items.length} transcript rows.`;
+  const passport = passportData(page);
+  const description = [
+    passport.modeLabel,
+    passport.topic,
+    passport.participants,
+    passport.context,
+    passport.meta,
+  ].filter(Boolean).join('. ') + `. ${page.items.length} transcript rows.`;
   const parts = [
-    `<svg class="comic-grid" xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}" viewBox="0 0 ${page.width} ${page.height}" role="img" aria-labelledby="${titleId} ${descriptionId}">`,
+    `<svg class="comic-grid" xmlns="http://www.w3.org/2000/svg" width="${page.width}" height="${page.height}" viewBox="0 0 ${page.width} ${page.height}" role="document" aria-labelledby="${titleId} ${descriptionId}">`,
     `<title id="${titleId}">${escapeXml(page.title)}</title>`,
     `<desc id="${descriptionId}">${escapeXml(description)}</desc>`,
-    svgDefs(),
+    svgDefs(page),
     `<rect x="0" y="0" width="${page.width}" height="${page.height}" fill="${THEME.paper}"/>`,
     `<rect x="0" y="0" width="${page.width}" height="${page.height}" fill="url(#comicGridMinor)"/>`,
     `<rect x="0" y="0" width="${page.width}" height="${page.height}" fill="url(#comicGridMajor)" opacity="0.46"/>`,
@@ -457,7 +1289,12 @@ export function renderTranscriptPageSvg(page) {
   for (const item of page.items) {
     if (item.kind === 'ellipsis') {
       const y = item.y + 7;
-      parts.push(`<text x="${fixed(page.width / 2)}" y="${y + 14}" text-anchor="middle" font-size="${SMALL_FONT_SIZE}" fill="#555555">${escapeXml(item.label)}</text>`);
+      parts.push(renderInlineTextSvg(item.label, page.width / 2, y + 14, {
+        fontSize: SMALL_FONT_SIZE,
+        fontWeight: 700,
+        fill: '#555555',
+        anchor: 'middle',
+      }));
     } else if (item.kind === 'time') {
       parts.push(renderTimeSvg(page, item));
     } else {
@@ -466,10 +1303,18 @@ export function renderTranscriptPageSvg(page) {
   }
   parts.push('</g>');
   if (page.footer) {
-    parts.push(`<text x="${fixed(page.width / 2)}" y="${page.height - 24}" text-anchor="middle" font-size="${SMALL_FONT_SIZE}" fill="#444444">${escapeXml(page.footer)}</text>`);
+    parts.push(renderInlineTextSvg(page.footer, page.width / 2, page.height - 24, {
+      fontSize: SMALL_FONT_SIZE,
+      fontWeight: 700,
+      fill: '#444444',
+      anchor: 'middle',
+    }));
   }
   parts.push('</svg>');
   return parts.join('\n');
 }
 
 export const CLAWORLD_TRANSCRIPT_STYLE_NAME = 'claworld-comic-grid';
+export const headerHeight = transcriptHeaderHeight;
+export const renderIdentityRouteSvg = identityRouteSvg;
+export const renderModeEmblemSvg = modeEmblemSvg;
