@@ -2118,11 +2118,100 @@ async function ensureRelayBinding({ runtimeConfig, fetchImpl, logger }) {
   };
 }
 
-function resolveDeliveryWorldId(delivery = {}) {
-  const metadata = delivery?.metadata && typeof delivery.metadata === 'object' && !Array.isArray(delivery.metadata)
-    ? delivery.metadata
-    : {};
-  return resolveNormalizedText(metadata.worldId, null) || null;
+function deliveryScopeObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function deliveryScopeRecords(delivery = {}) {
+  const root = deliveryScopeObject(delivery);
+  const payload = deliveryScopeObject(root.payload);
+  const metadata = deliveryScopeObject(root.metadata);
+  const payloadMetadata = deliveryScopeObject(payload.metadata);
+  const notifications = [
+    deliveryScopeObject(root.notification),
+    deliveryScopeObject(payload.notification),
+  ];
+  const records = [root, payload, metadata, payloadMetadata, ...notifications];
+  for (const record of [...records]) {
+    const relatedObjects = deliveryScopeObject(record.relatedObjects);
+    if (Object.keys(relatedObjects).length) records.push(relatedObjects);
+  }
+  return records;
+}
+
+function resolveConsistentDeliveryScope(candidates, { code, message }) {
+  const normalized = candidates
+    .map((candidate) => resolveNormalizedText(candidate, null))
+    .filter(Boolean);
+  const canonical = normalized[0] || null;
+  if (normalized.some((candidate) => candidate !== canonical)) {
+    const error = new Error(message);
+    error.code = code;
+    throw error;
+  }
+  return canonical;
+}
+
+function deliveryFieldCandidates(delivery, fieldNames) {
+  return deliveryScopeRecords(delivery).flatMap((record) => (
+    fieldNames.map((fieldName) => record[fieldName])
+  ));
+}
+
+export function resolveDeliveryWorldId(delivery = {}) {
+  return resolveConsistentDeliveryScope(
+    deliveryFieldCandidates(delivery, ['worldId']),
+    {
+      code: 'relay_world_scope_mismatch',
+      message: 'relay delivery worldId fields do not agree',
+    },
+  );
+}
+
+export function resolveDeliveryConversationKey(delivery = {}) {
+  return resolveConsistentDeliveryScope(
+    deliveryFieldCandidates(delivery, ['conversationKey']),
+    {
+      code: 'relay_conversation_scope_mismatch',
+      message: 'relay delivery conversationKey fields do not agree',
+    },
+  );
+}
+
+export function resolveDeliveryTargetAgentId(delivery = {}) {
+  return resolveConsistentDeliveryScope(
+    deliveryFieldCandidates(delivery, ['targetAgentId']),
+    {
+      code: 'relay_target_scope_mismatch',
+      message: 'relay delivery targetAgentId fields do not agree',
+    },
+  );
+}
+
+export function resolveDeliveryChatRequestId(delivery = {}) {
+  return resolveConsistentDeliveryScope(
+    deliveryFieldCandidates(delivery, ['chatRequestId', 'requestId', 'kickoffRequestId']),
+    {
+      code: 'relay_chat_request_scope_mismatch',
+      message: 'relay delivery chatRequestId fields do not agree',
+    },
+  );
+}
+
+export function assertDeliveryConversationScope({ conversationKey = null, worldId = null } = {}) {
+  const normalizedConversationKey = resolveNormalizedText(conversationKey, null);
+  const normalizedWorldId = resolveNormalizedText(worldId, null);
+  if (!normalizedConversationKey) return;
+  const keyWorldId = /(?:^|:)world:([^:]+)$/iu.exec(normalizedConversationKey)?.[1] || null;
+  const direct = !keyWorldId && /:direct$/iu.test(normalizedConversationKey);
+  if (
+    (direct && normalizedWorldId)
+    || (keyWorldId && (!normalizedWorldId || keyWorldId !== normalizedWorldId))
+  ) {
+    const error = new Error('relay delivery conversationKey and worldId do not agree');
+    error.code = 'relay_conversation_world_scope_mismatch';
+    throw error;
+  }
 }
 
 function buildDeliveryInboundEnvelope({
@@ -2396,32 +2485,11 @@ function buildInboundRuntimeMaintenanceEvent({
   const normalizedEventType = resolveNormalizedText(eventType, 'delivery');
   const isRelayDelivery = normalizedEventType === 'delivery';
   const sessionKey = resolveNormalizedText(delivery.sessionKey, null);
-  const requestId = resolveNormalizedText(
-    delivery.chatRequestId,
-    resolveNormalizedText(
-      payload.chatRequestId,
-      resolveNormalizedText(
-        payload.requestId,
-        resolveNormalizedText(
-          metadata.kickoffRequestId,
-          resolveNormalizedText(metadata.requestId, resolveNormalizedText(metadata.chatRequestId, null)),
-        ),
-      ),
-    ),
-  );
-  const worldId = resolveNormalizedText(
-    metadata.worldId,
-    resolveNormalizedText(delivery.worldId, resolveNormalizedText(payload.worldId, null)),
-  );
-  const conversationKey = resolveNormalizedText(
-    metadata.conversationKey,
-    resolveNormalizedText(delivery.conversationKey, resolveNormalizedText(payload.conversationKey, null)),
-  );
+  const requestId = resolveDeliveryChatRequestId(delivery);
+  const worldId = resolveDeliveryWorldId(delivery);
+  const conversationKey = resolveDeliveryConversationKey(delivery);
   const fromAgentId = resolveNormalizedText(metadata.fromAgentId, null);
-  const targetAgentId = resolveNormalizedText(
-    delivery.targetAgentId,
-    resolveNormalizedText(payload.targetAgentId, resolveNormalizedText(metadata.targetAgentId, null)),
-  );
+  const targetAgentId = resolveDeliveryTargetAgentId(delivery);
   const notificationId = resolveNormalizedText(
     metadata.notificationId,
     resolveNormalizedText(payload.notificationId, null),
@@ -3051,19 +3119,7 @@ export async function maybeBridgeRuntimeInboundEvent({
   const fromAgentId = resolveNormalizedText(metadata.fromAgentId, null);
   const isRelayDelivery = eventType === 'delivery';
   const allowReply = metadata.allowReply === true || (isRelayDelivery && metadata.allowReply !== false);
-  const chatRequestId = resolveNormalizedText(
-    delivery.chatRequestId,
-    resolveNormalizedText(
-      payload.chatRequestId,
-      resolveNormalizedText(
-        payload.requestId,
-        resolveNormalizedText(
-          metadata.kickoffRequestId,
-          resolveNormalizedText(metadata.requestId, resolveNormalizedText(metadata.chatRequestId, null)),
-        ),
-      ),
-    ),
-  );
+  const chatRequestId = resolveDeliveryChatRequestId(delivery);
 
   if (
     !runtime?.channel?.reply?.finalizeInboundContext
@@ -3086,6 +3142,23 @@ export async function maybeBridgeRuntimeInboundEvent({
       hasContextText: Boolean(contextText),
     });
     return { skipped: true, reason: 'missing_inbound_payload' };
+  }
+  const configuredRelayAgentId = resolveNormalizedText(
+    runtimeConfig?.relay?.agentId,
+    resolveNormalizedText(relayClient?.boundAgentId, null),
+  );
+  const deliveryTargetAgentId = resolveDeliveryTargetAgentId(delivery);
+  if (
+    configuredRelayAgentId
+    && deliveryTargetAgentId
+    && configuredRelayAgentId !== deliveryTargetAgentId
+  ) {
+    logger.error?.(`[claworld:${runtimeAccountId}] rejected inbound delivery for a different Relay agent`, {
+      eventType,
+      deliveryId,
+      sessionKey,
+    });
+    return { skipped: true, reason: 'target_agent_mismatch' };
   }
 
   const loadedCfg = await runtime.config?.loadConfig?.() || {};
@@ -3154,6 +3227,8 @@ export async function maybeBridgeRuntimeInboundEvent({
   const remoteIdentity = fromAgentId
     || resolveNormalizedText(metadata.source, routeSessionKind === 'management' ? 'claworld-management' : 'unknown-peer');
   const worldId = resolveDeliveryWorldId(delivery);
+  const conversationKey = resolveDeliveryConversationKey(delivery);
+  assertDeliveryConversationScope({ conversationKey, worldId });
   const commandAuthorized = isRelayDelivery && shouldAuthorizeBridgedCommand({
     runtimeConfig,
     incomingText: commandText || incomingText,
@@ -3173,7 +3248,7 @@ export async function maybeBridgeRuntimeInboundEvent({
     localSessionKey,
     worldId,
     chatRequestId,
-    conversationKey: delivery.conversationKey || metadata.conversationKey || null,
+    conversationKey,
     untrustedContext: payload.untrustedContext,
   });
   const localIdentity = normalizeClaworldText(runtimeConfig.relay?.agentId, runtimeConfig.accountId);
@@ -3210,7 +3285,7 @@ export async function maybeBridgeRuntimeInboundEvent({
     RelayDeliveryId: isRelayDelivery ? deliveryId : null,
     RelayChatRequestId: chatRequestId,
     RelayFromAgentId: fromAgentId,
-    RelayConversationKey: delivery.conversationKey || metadata.conversationKey || null,
+    RelayConversationKey: conversationKey,
     UntrustedContext,
   });
 
@@ -3366,14 +3441,20 @@ export async function maybeBridgeRuntimeInboundEvent({
     if (isRelayDelivery) {
       if (chatRequestId) {
         try {
-          await recordClaworldTranscriptEpisode(workspaceRoot, {
+          const transcriptIndexResult = await recordClaworldTranscriptEpisode(workspaceRoot, {
             chatRequestId,
             deliveryId,
             localSessionKey,
             relaySessionKey: sessionKey,
-            conversationKey: resolveNormalizedText(metadata.conversationKey, resolveNormalizedText(delivery.conversationKey, null)),
+            conversationKey,
+            accountId: runtimeAccountId,
+            relayAgentId: resolveNormalizedText(
+              runtimeConfig?.relay?.agentId,
+              resolveDeliveryTargetAgentId(delivery),
+            ),
             worldId,
-            targetAgentId: resolveNormalizedText(delivery.targetAgentId, resolveNormalizedText(payload.targetAgentId, null)),
+            targetAgentId: resolveDeliveryTargetAgentId(delivery)
+              || resolveNormalizedText(runtimeConfig?.relay?.agentId, null),
             fromAgentId,
             fromAgentCode: metadata.fromAgentCode,
             fromDisplayIdentity: metadata.fromDisplayIdentity,
@@ -3382,10 +3463,19 @@ export async function maybeBridgeRuntimeInboundEvent({
             commandText,
             contextText,
             untrustedContext: payload.untrustedContext,
+            conversationContext: payload.conversationContext,
             createdAt: delivery.createdAt || metadata.createdAt || payload.createdAt || null,
             turnCreatedAt: delivery.turnCreatedAt || metadata.turnCreatedAt || payload.turnCreatedAt || null,
             replyText,
           });
+          if (transcriptIndexResult?.ok === false) {
+            logger.warn?.(`[claworld:${runtimeAccountId}] transcript episode was rejected`, {
+              eventType,
+              deliveryId,
+              sessionKey,
+              reason: transcriptIndexResult.reason || 'unknown',
+            });
+          }
         } catch (error) {
           logger.warn?.(`[claworld:${runtimeAccountId}] transcript episode indexing failed`, {
             deliveryId,
