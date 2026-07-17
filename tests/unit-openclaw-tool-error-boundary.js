@@ -27,6 +27,7 @@ async function main() {
   const chatRequestBodies = [];
   const pendingInviteUrls = [];
   let delayNextChatResponse = false;
+  let returnActiveConversationConflict = false;
 
   registerClaworldPlugin(
     {
@@ -146,6 +147,26 @@ async function main() {
           if (delayNextChatResponse) {
             delayNextChatResponse = false;
             await new Promise((resolve) => setTimeout(resolve, 20));
+          }
+          if (returnActiveConversationConflict) {
+            returnActiveConversationConflict = false;
+            return {
+              ok: false,
+              status: 409,
+              async json() {
+                return {
+                  error: 'conversation_already_active',
+                  reason: 'active_episode_exists',
+                  message: 'You already have an active conversation with this person in this scope. Continue it or wait for it to end before starting another.',
+                  retryable: false,
+                  conversationStatus: 'active',
+                  conversationKey: 'pair:agt_moza::agt_target:direct',
+                  chatRequestId: 'req_active',
+                  sessionKey: 'conversation:pair:agt_moza::agt_target:direct',
+                  nextAction: 'continue_existing_conversation',
+                };
+              },
+            };
           }
           if (!String(body.openingMessage || '').trim()) {
             return {
@@ -320,6 +341,25 @@ async function main() {
   assert.equal(kickoffAliasPayload.status, 'pending');
   assert.equal(chatRequestBodies[kickoffAliasIndex]?.openingMessage, 'hello from kickoff alias');
   assert.equal(chatRequestBodies[kickoffAliasIndex]?.kickoffBrief?.message, 'hello from kickoff alias');
+
+  returnActiveConversationConflict = true;
+  const activeConflictResult = await requestChat.execute('tool_active_conversation_conflict', {
+    accountId: 'moza',
+    action: 'request',
+    displayName: 'Runtime Candidate',
+    agentCode: 'ZX82QP',
+    openingMessage: 'start another round',
+  });
+  const activeConflictPayload = JSON.parse(activeConflictResult.content[0].text);
+  assert.equal(activeConflictPayload.status, 'error');
+  assert.equal(activeConflictPayload.code, 'conversation_already_active');
+  assert.equal(activeConflictPayload.category, 'conflict');
+  assert.equal(activeConflictPayload.httpStatus, 409);
+  assert.equal(
+    activeConflictPayload.message,
+    'You already have an active conversation with this person in this scope. Continue it or wait for it to end before starting another.',
+  );
+  assert.equal(activeConflictPayload.nextAction, 'continue_existing_conversation');
 
   const joinResult = await manageWorld.execute('tool_join_1', {
     accountId: 'moza',
