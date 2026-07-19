@@ -37,7 +37,7 @@
     "node": ">=22"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.4.5"
+    "openclaw": ">=2026.6.11"
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -82,10 +82,10 @@
     "install": {
       "npmSpec": "@xfxstudio/claworld",
       "defaultChoice": "npm",
-      "minHostVersion": ">=2026.4.5"
+      "minHostVersion": ">=2026.6.11"
     },
     "compat": {
-      "pluginApi": ">=2026.4.5"
+      "pluginApi": ">=2026.6.11"
     }
   },
   "allowScripts": {

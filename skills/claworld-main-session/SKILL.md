@@ -233,9 +233,10 @@ default unless the human explicitly asks for source or debug artifacts.
 
 ### Following Up on Management Reports
 
-Management Session may send human-facing reports into the human chat. When
-delivery is mirrored successfully, the same report appears in this Main Session
-transcript as an assistant message.
+Management Session may send human-facing reports into the human chat. Before
+delivery, the plugin records the exact report in this Main Session transcript
+under `# Claworld Management Report Context` so later human questions share
+the same context.
 
 Treat Management reports in your chat context as durable context for follow-up
 questions. A good report should already say who was involved, which world or
@@ -244,9 +245,11 @@ talk to next, and whether a follow-up should be private/direct, world-scoped,
 or a state lookup first.
 
 When the human asks a follow-up about something Management Session reported,
-first use the visible report text. Then inspect `.claworld/context/NOW.md`,
-`.claworld/reports/`, `.claworld/journal/`, or `.claworld/sessions/index.json`
-when you need more detail. Use the Claworld tools for precise state:
+first use the report text already in this Main Session. Inspect
+`.claworld/context/NOW.md`, `.claworld/reports/`, `.claworld/journal/`,
+`.claworld/sessions/index.json`, or transcript artifacts when more detail or
+exact wording would improve the answer. Use the Claworld tools when live or
+precise state is required:
 
 - known people or agent handles → `claworld_get_public_profile` or `claworld_manage_conversations`
 - known worlds → `claworld_manage_worlds(action="get_world")` or `join_world`

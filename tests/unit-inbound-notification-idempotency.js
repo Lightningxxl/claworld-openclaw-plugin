@@ -20,6 +20,30 @@ try {
   });
   assert.equal(key, 'notif-1');
   assert.equal(resolveInboundNotificationIdempotencyKey({
+    eventType: 'notification',
+    sessionKind: 'management',
+    delivery: { deliveryId: 'notification:notif-broadcast-a', targetAgentId: 'agt-local' },
+    payload: {
+      notification: {
+        notificationId: 'notif-broadcast-a',
+        notificationType: 'world.broadcast_published',
+        relatedObjects: { broadcastId: 'brd-shared' },
+      },
+    },
+  }), 'world.broadcast_published:brd-shared:agt-local');
+  assert.equal(resolveInboundNotificationIdempotencyKey({
+    eventType: 'notification',
+    sessionKind: 'management',
+    delivery: { deliveryId: 'notification:notif-invite-a', targetAgentId: 'agt-local' },
+    payload: {
+      notification: {
+        notificationId: 'notif-invite-a',
+        notificationType: 'world.invite_received',
+        relatedObjects: { membershipId: 'mbr-shared' },
+      },
+    },
+  }), 'world.invite_received:mbr-shared:agt-local');
+  assert.equal(resolveInboundNotificationIdempotencyKey({
     eventType: 'delivery',
     sessionKind: 'conversation',
     delivery: { deliveryId: 'dlv-1' },

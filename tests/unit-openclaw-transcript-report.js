@@ -198,6 +198,19 @@ async function assertStoredRendering(workspaceRoot) {
   assert.equal(augmented.localTranscriptEpisodes[0].renderableMessages, 4);
   assert.equal(augmented.localTranscriptEpisodes[0].peerMessages, 2);
   assert.equal(augmented.localTranscriptEpisodes[0].localMessages, 2);
+  assert.deepEqual(augmented.localTranscriptEpisode.messages.map((message) => message.from), [
+    'peer',
+    'local',
+    'peer',
+    'local',
+  ]);
+  assert.equal(augmented.localTranscriptEpisode.messages.length, 4);
+  assert.ok(augmented.localTranscriptEpisode.messages.every((message) => message.text));
+  assert.ok(augmented.localTranscriptEpisode.messages[0].text.includes('[redacted-email]'));
+  assert.deepEqual(augmented.localTranscriptEpisode.messages[0].tags, ['like']);
+  assert.ok(augmented.localTranscriptEpisode.messages[1].text.includes('api_key=[redacted]'));
+  assert.equal(augmented.localTranscriptEpisode.messages[1].text.includes('secret-value'), false);
+  assert.deepEqual(augmented.localTranscriptEpisode.messages[2].tags, ['request end']);
   assert.equal(augmented.items[0].localTranscriptEpisodes[0].chatRequestId, 'req-new');
 }
 
@@ -461,27 +474,315 @@ async function assertToolIsGenerationOnly(workspaceRoot) {
 
   const managementTool = toolFactories.get('claworld_render_transcript_report')({
     ...toolContext,
+    sessionKey: 'agent:main:management:agent-local',
     messageChannel: 'claworld',
     deliveryContext: { channel: 'claworld', to: 'management:agent-local', accountId: 'claworld' },
   });
-  const managementResult = await managementTool.execute('render-management', {
-    mode: 'manual',
-    manual: {
-      title: 'Management handoff',
-      peerProfile: 'High-value report excerpt',
-      localLabel: 'local',
-      peerLabel: 'peer',
-      messages: [
-        { from: 'peer', text: 'include this quote in the report', createdAt: '2026-07-13T09:05:00Z' },
-      ],
+  assert.equal(managementTool, null);
+  assert.equal(outboundAdapterLoads, 0);
+}
+
+async function assertFirstClassManagementReporting(workspaceRoot) {
+  const mainSessionKey = 'agent:main:feishu:direct:user-owner';
+  await updateClaworldSessionDirectory(workspaceRoot, {
+    timestamp: '2026-07-18T01:00:00Z',
+    source: 'unit',
+    scope: 'main',
+    relations: {
+      localSessionKey: mainSessionKey,
+      sessionKey: mainSessionKey,
+      localAgentId: 'main',
     },
   });
-  const managementPayload = JSON.parse(managementResult.content[0].text);
-  assert.equal(managementPayload.status, 'ok');
-  assert.equal('delivery' in managementPayload, false);
-  assert.equal('deliveryHint' in managementPayload, false);
-  assert.ok(managementPayload.artifacts.pngPages.every((item) => path.isAbsolute(item.path)));
-  assert.equal(outboundAdapterLoads, 0);
+
+  const toolFactories = new Map();
+  const events = [];
+  const contextRuns = [];
+  let mediaCallCount = 0;
+  let failMediaCall = null;
+  const cfg = { agents: { list: [{ id: 'main', workspace: workspaceRoot }] } };
+  const toolContext = {
+    workspaceRoot,
+    agentId: 'main',
+    sessionKey: 'agent:main:management:agent-local',
+    messageChannel: 'claworld',
+    deliveryContext: { channel: 'claworld', to: 'management:agent-local' },
+    getRuntimeConfig: () => cfg,
+  };
+
+  registerClaworldPlugin({
+    registerChannel() {},
+    registerHttpRoute() {},
+    registerTool(tool, options) {
+      if (typeof tool === 'function') toolFactories.set(options.name, tool);
+    },
+    config: { async loadConfig() { return cfg; } },
+    runtime: {
+      agent: {
+        session: {
+          getSessionEntry(params) {
+            events.push({ kind: 'session.get', params });
+            assert.equal(params.sessionKey, mainSessionKey);
+            assert.equal(params.agentId, 'main');
+            return {
+              sessionId: 'main-session-id',
+              updatedAt: Date.now(),
+              deliveryContext: {
+                channel: 'feishu',
+                to: 'user:owner',
+                accountId: 'default',
+                threadId: 'thread-1',
+              },
+            };
+          },
+        },
+      },
+      subagent: {
+        async run(params) {
+          events.push({ kind: 'context.run', params });
+          contextRuns.push(params);
+          return { runId: `context-run-${contextRuns.length}` };
+        },
+        async waitForRun(params) {
+          events.push({ kind: 'context.wait', params });
+          return { status: 'ok' };
+        },
+        async getSessionMessages(params) {
+          events.push({ kind: 'context.messages', params });
+          const reportId = /Report ID: (claworld-report-[a-f0-9]+)/u.exec(contextRuns.at(-1).message)?.[1];
+          return {
+            messages: [{
+              role: 'assistant',
+              content: [{
+                type: 'text',
+                text: `CLAWORLD_REPORT_CONTEXT_RECORDED:${reportId}`,
+              }],
+            }],
+          };
+        },
+      },
+      channel: {
+        outbound: {
+          async loadAdapter(channel) {
+            events.push({ kind: 'adapter.load', channel });
+            assert.equal(channel, 'feishu');
+            return {
+              deliveryMode: 'direct',
+              async sendText(input) {
+                events.push({ kind: 'delivery.text', input });
+                return {
+                  success: true,
+                  receipt: { kind: 'text', messageId: `text-${events.length}` },
+                };
+              },
+              async sendMedia(input) {
+                mediaCallCount += 1;
+                events.push({ kind: 'delivery.media', input, mediaCallCount });
+                if (mediaCallCount === failMediaCall) {
+                  return { success: false, error: 'injected page delivery failure' };
+                }
+                return {
+                  success: true,
+                  receipt: { kind: 'document', messageId: `media-${mediaCallCount}` },
+                };
+              },
+            };
+          },
+        },
+      },
+    },
+  });
+
+  const reportTool = toolFactories.get('claworld_report_to_human')(toolContext);
+  const storedRequest = {
+    accountId: 'claworld',
+    source: {
+      kind: 'conversation',
+      id: 'req-new',
+      eventName: 'conversation_ended',
+    },
+    reportText: '刚和 Peer 聊完这轮。他提出了一个值得继续追的合作方向；最有意思的一句是：“下周我可以带着原型再来聊。”',
+    transcript: { mode: 'stored' },
+  };
+  const first = JSON.parse((await reportTool.execute('report-stored', storedRequest)).content[0].text);
+  assert.equal(first.status, 'complete');
+  assert.equal(first.contextSynced, true);
+  assert.equal(first.delivery.textSent, true);
+  assert.equal(first.delivery.pagesSent, first.delivery.pageCount);
+  assert.equal(first.deduplicated, false);
+  assert.equal(first.mainSessionKey, mainSessionKey);
+  assert.match(first.reportId, /^claworld-report-[a-f0-9]{24}$/u);
+
+  const firstKinds = events.map((event) => event.kind);
+  assert.deepEqual(firstKinds, [
+    'session.get',
+    'context.run',
+    'context.wait',
+    'context.messages',
+    'adapter.load',
+    'delivery.text',
+    'delivery.media',
+  ]);
+  const firstContext = contextRuns[0];
+  assert.equal(firstContext.sessionKey, mainSessionKey);
+  assert.equal(firstContext.deliver, false);
+  assert.equal(firstContext.lightContext, true);
+  assert.equal(firstContext.idempotencyKey, `${first.reportId}:main-context`);
+  assert.match(firstContext.lane, /^claworld-report-context-/u);
+  assert.ok(firstContext.message.includes(storedRequest.reportText));
+  assert.ok(firstContext.message.includes('# Claworld Management Report Context'));
+  assert.ok(firstContext.message.includes('Source kind: conversation'));
+  assert.ok(firstContext.message.includes('req-new'));
+  assert.ok(firstContext.extraSystemPrompt.includes('Do not call any tool'));
+  const firstText = events.find((event) => event.kind === 'delivery.text').input;
+  assert.equal(firstText.text, storedRequest.reportText);
+  assert.equal(firstText.to, 'user:owner');
+  assert.equal(firstText.accountId, 'default');
+  assert.equal(firstText.threadId, 'thread-1');
+  const firstMedia = events.find((event) => event.kind === 'delivery.media').input;
+  assert.equal(firstMedia.forceDocument, true);
+  assert.equal(firstMedia.to, 'user:owner');
+  assert.ok(path.isAbsolute(firstMedia.mediaUrl));
+
+  const eventCountAfterFirst = events.length;
+  const duplicate = JSON.parse((await reportTool.execute('report-stored-duplicate', storedRequest)).content[0].text);
+  assert.equal(duplicate.status, 'complete');
+  assert.equal(duplicate.reportId, first.reportId);
+  assert.equal(duplicate.deduplicated, true);
+  assert.equal(events.length, eventCountAfterFirst);
+
+  const notificationRequest = {
+    accountId: 'claworld',
+    source: {
+      kind: 'notification',
+      id: 'world.broadcast_published:brd-world-broadcast-1',
+      eventName: 'world.broadcast_published',
+    },
+    reportText: '问号剧场刚发了一条新公告：周末会开放一轮即兴对战，想参加的话我可以帮你报名。',
+  };
+  const notificationMediaStart = mediaCallCount;
+  const notificationTextStart = events.filter((event) => event.kind === 'delivery.text').length;
+  const notificationContextStart = contextRuns.length;
+  const notification = JSON.parse((await reportTool.execute('report-notification', notificationRequest)).content[0].text);
+  assert.equal(notification.status, 'complete');
+  assert.equal(notification.source.kind, 'notification');
+  assert.equal(notification.source.id, 'world.broadcast_published:brd-world-broadcast-1');
+  assert.equal(notification.contextSynced, true);
+  assert.equal(notification.delivery.textSent, true);
+  assert.equal(notification.delivery.pageCount, 0);
+  assert.equal(notification.delivery.pagesSent, 0);
+  assert.equal(mediaCallCount, notificationMediaStart);
+  assert.equal(events.filter((event) => event.kind === 'delivery.text').length, notificationTextStart + 1);
+  assert.equal(contextRuns.length, notificationContextStart + 1);
+  assert.ok(contextRuns.at(-1).message.includes('Source kind: notification'));
+  assert.ok(contextRuns.at(-1).message.includes('Event name: world.broadcast_published'));
+  assert.equal(contextRuns.at(-1).message.includes('Transcript pages:'), false);
+
+  const notificationEventCount = events.length;
+  const notificationDuplicate = JSON.parse((await reportTool.execute('report-notification-duplicate', notificationRequest)).content[0].text);
+  assert.equal(notificationDuplicate.status, 'complete');
+  assert.equal(notificationDuplicate.deduplicated, true);
+  assert.equal(events.length, notificationEventCount);
+
+  const notificationConflict = JSON.parse((await reportTool.execute('report-notification-conflict', {
+    ...notificationRequest,
+    reportText: '同一个通知被改写成另一段文字。',
+  })).content[0].text);
+  assert.equal(notificationConflict.status, 'error');
+  assert.equal(notificationConflict.code, 'management_report_source_conflict');
+  assert.match(notificationConflict.message, /already has a different report/u);
+  assert.equal(events.length, notificationEventCount);
+
+  const manualMessages = Array.from({ length: 24 }, (_, index) => ({
+    from: index % 2 === 0 ? 'peer' : 'local',
+    text: `Selected highlight ${index + 1}: ${'a detailed visible excerpt '.repeat(5)}`,
+    createdAt: new Date(Date.parse('2026-07-18T02:00:00Z') + index * 1000).toISOString(),
+  }));
+  const manualRequest = {
+    source: {
+      kind: 'conversation',
+      id: 'req-manual',
+      eventName: 'conversation_ended',
+    },
+    reportText: '这次挑了关键片段给你看。对方那句“先把体验做稳，再谈规模”很准确，我建议下轮直接追问验证指标。',
+    transcript: {
+      mode: 'manual',
+      manual: {
+        title: '关键片段',
+        peerProfile: '一次关于产品验证的交流',
+        localLabel: 'Mira',
+        peerLabel: 'Peer',
+        messages: manualMessages,
+      },
+      maxPageHeight: 900,
+    },
+  };
+  const mediaStart = mediaCallCount;
+  const textStart = events.filter((event) => event.kind === 'delivery.text').length;
+  const contextStart = contextRuns.length;
+  failMediaCall = mediaStart + 2;
+  const partial = JSON.parse((await reportTool.execute('report-manual-partial', manualRequest)).content[0].text);
+  assert.equal(partial.status, 'error');
+  assert.equal(partial.message, 'tool execution failed');
+  assert.equal(events.filter((event) => event.kind === 'delivery.text').length, textStart + 1);
+  assert.equal(contextRuns.length, contextStart + 1);
+
+  failMediaCall = null;
+  const resumed = JSON.parse((await reportTool.execute('report-manual-resume', manualRequest)).content[0].text);
+  assert.equal(resumed.status, 'complete');
+  assert.ok(resumed.delivery.pageCount > 1);
+  assert.equal(resumed.delivery.pagesSent, resumed.delivery.pageCount);
+  assert.equal(events.filter((event) => event.kind === 'delivery.text').length, textStart + 1);
+  assert.equal(contextRuns.length, contextStart + 1);
+  const manualMediaEvents = events
+    .filter((event) => event.kind === 'delivery.media')
+    .slice(mediaStart);
+  assert.equal(manualMediaEvents.length, resumed.delivery.pageCount + 1);
+  assert.notEqual(manualMediaEvents[0].input.mediaUrl, firstMedia.mediaUrl);
+
+  const ledger = JSON.parse(await fs.readFile(
+    path.join(workspaceRoot, '.claworld', 'reports', 'management-report-delivery.json'),
+    'utf8',
+  ));
+  assert.equal(ledger.schema, 'claworld.management-report-delivery.v1');
+  assert.equal(ledger.reports[first.reportId].status, 'complete');
+  assert.equal(ledger.reports[notification.reportId].status, 'complete');
+  assert.equal(ledger.reports[resumed.reportId].status, 'complete');
+  assert.equal(Object.prototype.hasOwnProperty.call(ledger.reports[first.reportId], 'reportText'), false);
+
+  const noRouteRoot = path.join(workspaceRoot, 'no-main-route');
+  await ensureClaworldWorkingMemory(noRouteRoot);
+  const eventCountBeforeMissingRoute = events.length;
+  const noRouteTool = toolFactories.get('claworld_report_to_human')({
+    ...toolContext,
+    workspaceRoot: noRouteRoot,
+  });
+  const missingRoute = JSON.parse((await noRouteTool.execute('report-no-route', {
+    source: {
+      kind: 'conversation',
+      id: 'req-missing-route',
+      eventName: 'conversation_ended',
+    },
+    reportText: '这条报告应该在缺少 Main route 时明确失败。',
+    transcript: {
+      mode: 'manual',
+      manual: {
+        title: 'Route check',
+        peerProfile: 'Route check',
+        localLabel: 'local',
+        peerLabel: 'peer',
+        messages: [{
+          from: 'peer',
+          text: 'route check',
+          createdAt: '2026-07-18T03:00:00Z',
+        }],
+      },
+    },
+  })).content[0].text);
+  assert.equal(missingRoute.status, 'error');
+  assert.equal(missingRoute.code, 'management_report_main_session_missing');
+  assert.match(missingRoute.message, /active Main Session/u);
+  assert.equal(events.length, eventCountBeforeMissingRoute);
 }
 
 async function assertSessionSkillDeliveryContracts() {
@@ -496,16 +797,20 @@ async function assertSessionSkillDeliveryContracts() {
   assert.match(compactMainSkill, /Send every rendered page/u);
   assert.match(compactMainSkill, /up to 8000px per page by default/u);
   assert.match(compactMainSkill, /values from 900px through 32000px/u);
-  assert.match(compactManagementSkill, /### Delivering Transcript Images/u);
-  assert.match(compactManagementSkill, /call `sessions_list` \(without `kinds`\)/u);
-  assert.match(compactManagementSkill, /get the `deliveryContext`/u);
-  assert.match(compactManagementSkill, /message\(action=send, channel=<deliveryContext/u);
-  assert.match(compactManagementSkill, /media=<absolute path>, forceDocument=true\)/u);
-  assert.match(compactManagementSkill, /Keep media delivery to `message\(action=send\)` only/u);
-  assert.match(compactManagementSkill, /up to 8000px tall by default/u);
-  assert.match(compactManagementSkill, /longer conversations produce multiple pages/u);
+  assert.match(compactManagementSkill, /make one `claworld_report_to_human` call/u);
+  assert.match(compactManagementSkill, /reads the authoritative `main\.lastActiveSessionKey`/u);
+  assert.match(compactManagementSkill, /accepts no Main `sessionKey`, channel, target, account, thread, or PNG path/u);
+  assert.match(compactManagementSkill, /Choose `transcript\.mode=stored` for the complete episode/u);
+  assert.match(compactManagementSkill, /Choose `transcript\.mode=manual` for an intentional set/u);
+  assert.match(compactManagementSkill, /contextSynced=true/u);
+  assert.match(compactManagementSkill, /retry the same `claworld_report_to_human` arguments/u);
+  assert.match(compactManagementSkill, /other notifications omit transcript/u);
   assert.match(compactManagementSkill, /Every conversation-ended report includes a text summary and a transcript image/u);
   assert.match(compactManagementSkill, /Conversation length and value affect the summary length, not whether the transcript is rendered and delivered/u);
+  const deliverySection = compactManagementSkill.split('## Delivery')[1].split('## Proactive Actions')[0];
+  assert.equal(deliverySection.includes('sessions_send('), false);
+  assert.equal(deliverySection.includes('message(action=send'), false);
+  assert.equal(deliverySection.includes('claworld_render_transcript_report('), false);
   assert.equal(managementSkill.includes('Skip the image'), false);
   assert.equal(managementSkill.includes('For most conversations'), false);
   for (const skill of [mainSkill, managementSkill]) {
@@ -525,6 +830,7 @@ async function main() {
     await assertManualPagination(workspaceRoot);
     await assertPageHeightHardLimit(workspaceRoot);
     await assertToolIsGenerationOnly(workspaceRoot);
+    await assertFirstClassManagementReporting(workspaceRoot);
     await assertSessionSkillDeliveryContracts();
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });

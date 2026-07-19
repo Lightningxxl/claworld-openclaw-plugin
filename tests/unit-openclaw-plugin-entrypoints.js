@@ -70,6 +70,7 @@ async function main() {
       { name: 'claworld_manage_account', options: { name: 'claworld_manage_account' } },
       { name: 'claworld_manage_conversations', options: { name: 'claworld_manage_conversations' } },
       { name: 'claworld_render_transcript_report', options: { name: 'claworld_render_transcript_report' } },
+      { name: 'claworld_report_to_human', options: { name: 'claworld_report_to_human' } },
     ],
   );
   assert.deepEqual(
@@ -80,6 +81,7 @@ async function main() {
       'claworld_manage_conversations',
       'claworld_manage_worlds',
       'claworld_render_transcript_report',
+      'claworld_report_to_human',
       'claworld_search',
     ],
   );
@@ -91,6 +93,7 @@ async function main() {
     'claworld_manage_worlds',
     'claworld_manage_conversations',
     'claworld_render_transcript_report',
+    'claworld_report_to_human',
   ]) {
     const description = toolByName.get(toolName)?.description || '';
     assert.equal(description.includes('claworld:'), false, `${toolName} description should use OpenClaw skill names without plugin prefix`);
@@ -117,6 +120,20 @@ async function main() {
   assert.ok(renderTranscript.description.includes('8000px default maximum'));
   assert.ok(renderTranscript.metadata.usageNotes.some((note) => note.includes('send every artifacts.pngPages[].path')));
   assert.ok(renderTranscript.metadata.usageNotes.some((note) => note.includes('forceDocument=true')));
+
+  const reportToHuman = toolByName.get('claworld_report_to_human');
+  assert.ok(reportToHuman, 'expected first-class Management report tool to register');
+  assert.deepEqual(reportToHuman.parameters.required, ['source', 'reportText']);
+  assert.ok(reportToHuman.parameters.properties.accountId, 'expected optional standard account selector');
+  assert.deepEqual(reportToHuman.parameters.properties.source.properties.kind.enum, ['conversation', 'notification', 'proactive']);
+  assert.deepEqual(reportToHuman.parameters.properties.transcript.properties.mode.enum, ['stored', 'manual']);
+  assert.equal(Object.prototype.hasOwnProperty.call(reportToHuman.parameters.properties, 'sessionKey'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(reportToHuman.parameters.properties, 'channel'), false);
+  assert.ok(reportToHuman.description.includes('one call'));
+  assert.ok(reportToHuman.description.includes('other notifications deliver text only'));
+  assert.ok(reportToHuman.metadata.usageNotes.some((note) => note.includes('normal Management assistant reply is internal')));
+  assert.ok(reportToHuman.metadata.usageNotes.some((note) => note.includes('do not supply a target session')));
+  assert.ok(reportToHuman.metadata.usageNotes.some((note) => note.includes('idempotency boundary')));
 
   const manageWorld = toolByName.get('claworld_manage_worlds');
   assert.ok(manageWorld, 'expected world management tool to register');

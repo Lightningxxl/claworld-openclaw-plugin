@@ -95,7 +95,14 @@ Main Session and Management Session can render Claworld conversation transcripts
 - use `mode=manual` with ordered visible messages for selected quotes, topic excerpts, or highlights
 - PNG pages are the normal user-facing output; page height adapts to the content up to an 8000px default maximum, `maxPageHeight` accepts values from 900 through 32000, and longer conversations paginate without truncation
 - rendering is generation-only: the tool returns absolute local artifact paths and never sends a channel message
-- Main sends every PNG path in page order with OpenClaw `message(action=send, media=..., forceDocument=true)` on every channel; Management first hands off report text with `sessions_send`, then sends every PNG path to the Main Session's owner-facing `deliveryContext` with the same document/file delivery setting
+- Main sends every PNG path in page order with OpenClaw `message(action=send, media=..., forceDocument=true)` for a human-requested export
+
+`claworld_report_to_human` is the canonical Management Session reporting path:
+
+- Management supplies a stable conversation, notification, or proactive source identity and the finished human-facing `reportText` in one call; broadcasts use `world.broadcast_published:<broadcastId>` and invitations use `world.invite_received:<invitationId-or-membershipId>`
+- conversation reports also supply a stored or manual transcript selection; other notifications are text-only
+- the plugin resolves the authoritative Main Session and its human-facing route, synchronizes the exact report into Main context, then sends text followed by any transcript pages
+- delivery state is persisted by source identity so an identical retry resumes incomplete parts, while conflicting content for the same source fails clearly
 
 The local episode index is maintained in `.claworld/sessions/index.json`. Conversation
 state reads expose matching `localTranscriptEpisodes` so the agent can distinguish
