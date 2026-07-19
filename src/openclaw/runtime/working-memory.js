@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { resolveOpenClawWorkspaceRoot } from './workspace-resolver.js';
 
@@ -57,6 +58,7 @@ const CLAWORLD_JOURNAL_SCHEMA = 'claworld.journal.v2';
 const CLAWORLD_SESSION_DIRECTORY_SCHEMA = 'claworld.sessions.v1';
 const CLAWORLD_SESSION_DIRECTORY_FILE = `${CLAWORLD_SESSIONS_DIR}/index.json`;
 const CLAWORLD_SESSION_DIRECTORY_WRITE_QUEUES = new Map();
+const CLAWORLD_WORKING_MEMORY_ENSURE_QUEUES = new Map();
 
 const MAIN_BOOTSTRAP_FILES = Object.freeze([
   CLAWORLD_WORKING_MEMORY_FILES.memory,
@@ -195,7 +197,7 @@ export function buildClaworldContextPointer(options = {}) {
     '',
     '## Conversation Transcript Images',
     '- When the human asks to find, export, quote, or show a prior Claworld conversation, treat it as a Claworld conversation lookup/render task. Read the `claworld-main-session` skill.',
-    '- Select a complete episode only by exact `chatRequestId`, then call `claworld_render_transcript_report(mode=stored, stored.chatRequestId=...)`. Never substitute conversationKey or localSessionKey.',
+    '- Select a complete episode only by exact `chatRequestId`, read its content or faithful report, then call `claworld_render_transcript_report(mode=stored, chatRequestId=..., topic=...)` with one short topic phrase summarizing what the exact episode discusses, based only on its visible messages. Never substitute conversationKey or localSessionKey; never use routing ids as visible Passport text.',
     '- The renderer only generates local artifacts. Its page height adapts to content up to an 8000px default maximum; maxPageHeight accepts integers from 900 through 32000, and overflow continues on additional pages. After rendering, send every absolute PNG path in page order with the standard OpenClaw `message(action=send, media=..., forceDocument=true)` tool on every channel. Never paste paths or `MEDIA:` pseudo-references into user-visible text.',
     '- PNG pages are the normal deliverable. Do not expose backend commands, routing/tool/system noise, NO_REPLY, raw JSON, secrets, SVG, BubbleSpec, or local paths in an ordinary human-facing response.'
   ].join('\n');
@@ -229,10 +231,11 @@ function buildClaworldManagementStartupPrompt(options = {}) {
     'Every conversation-ended report includes its transcript images:',
     '1. Call `claworld_manage_conversations(action=get_state, chatRequestId=<exact id>)` and read the ordered visible conversation from `localTranscriptEpisode.messages` in that result.',
     '2. Write the finished human-facing report from those exact messages, including at least one Golden Quote or vivid highlighted moment. The report action does not require a renderer call or reading a generated artifact.',
-    '3. Call `claworld_report_to_human` once with source.kind=`conversation`, source.id set to the exact `chatRequestId`, the final `reportText`, and transcript selection.',
-    '4. Use transcript mode `stored` for the complete episode and `manual` for an intentional selected excerpt or highlights.',
-    '5. Do not call `claworld_render_transcript_report` in Management. It is reserved for Main when the human explicitly requests an export. The report tool owns rendering, Main context sync, and external delivery.',
-    '6. A complete result needs contextSynced=true, textSent=true, and every page sent. Finish the turn after that result.',
+    '3. Write one short topic phrase summarizing what this exact episode discusses. Base it only on the episode\'s visible messages.',
+    '4. Call `claworld_report_to_human` once with source.kind=`conversation`, source.id set to the exact `chatRequestId`, the final `reportText`, and `transcript={mode: "stored", topic: "<exact episode topic>"}`.',
+    '5. Use transcript mode `stored` for the complete episode and `manual` for an intentional selected excerpt or highlights.',
+    '6. Do not call `claworld_render_transcript_report` in Management. It is reserved for Main when the human explicitly requests an export. The report tool owns rendering, Main context sync, and external delivery.',
+    '7. A complete result needs contextSynced=true, textSent=true, and every page sent. Finish the turn after that result.',
     '',
     '## Local Files',
     `- PROFILE.md: \`${artifacts.profile}\``,
@@ -768,10 +771,22 @@ async function atomicWriteText(filePath, content, {
 
   const tempPath = path.join(
     path.dirname(filePath),
-    `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`,
+    `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`,
   );
   await fs.writeFile(tempPath, nextContent, 'utf8');
   await fs.rename(tempPath, filePath);
+}
+
+function withClaworldWorkingMemoryEnsureLock(workspaceRoot, operation) {
+  const queueKey = path.resolve(String(workspaceRoot));
+  const previous = CLAWORLD_WORKING_MEMORY_ENSURE_QUEUES.get(queueKey) || Promise.resolve();
+  const current = previous.catch(() => {}).then(operation);
+  CLAWORLD_WORKING_MEMORY_ENSURE_QUEUES.set(queueKey, current);
+  return current.finally(() => {
+    if (CLAWORLD_WORKING_MEMORY_ENSURE_QUEUES.get(queueKey) === current) {
+      CLAWORLD_WORKING_MEMORY_ENSURE_QUEUES.delete(queueKey);
+    }
+  });
 }
 
 export function withClaworldSessionDirectoryWriteLock(workspaceRoot, operation) {
@@ -820,33 +835,35 @@ export async function ensureClaworldWorkingMemory(options = {}, ensureOptions = 
     };
   }
 
-  for (const directory of directories) {
-    await fs.mkdir(directory.absolutePath, { recursive: true });
-    actions.push(`ensured ${directory.absolutePath}`);
-  }
-
-  for (const file of files) {
-    const currentContent = await readTextIfPresent(file.absolutePath);
-    if (currentContent == null) {
-      await atomicWriteText(file.absolutePath, file.content, {
-        backup: false,
-        rejectEmptyOverwrite: false,
-      });
-      actions.push(`created ${file.absolutePath}`);
-    } else {
-      actions.push(`preserved ${file.absolutePath}`);
+  return withClaworldWorkingMemoryEnsureLock(workspaceRoot, async () => {
+    for (const directory of directories) {
+      await fs.mkdir(directory.absolutePath, { recursive: true });
+      actions.push(`ensured ${directory.absolutePath}`);
     }
-  }
 
-  return {
-    ok: true,
-    dryRun: false,
-    workspaceRoot,
-    memoryRoot,
-    directories,
-    files,
-    actions,
-  };
+    for (const file of files) {
+      const currentContent = await readTextIfPresent(file.absolutePath);
+      if (currentContent == null) {
+        await atomicWriteText(file.absolutePath, file.content, {
+          backup: false,
+          rejectEmptyOverwrite: false,
+        });
+        actions.push(`created ${file.absolutePath}`);
+      } else {
+        actions.push(`preserved ${file.absolutePath}`);
+      }
+    }
+
+    return {
+      ok: true,
+      dryRun: false,
+      workspaceRoot,
+      memoryRoot,
+      directories,
+      files,
+      actions,
+    };
+  });
 }
 
 function toIsoTimestamp(value = null) {

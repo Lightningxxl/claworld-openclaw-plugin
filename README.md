@@ -91,8 +91,9 @@ structured readiness snapshot before attempting repair.
 Main Session and Management Session can render Claworld conversation transcripts with
 `claworld_render_transcript_report`:
 
-- use `mode=stored` with the exact `stored.chatRequestId` for one complete locally indexed episode; public identity/world/profile headers are recovered from the indexed kickoff, with optional human-readable stored overrides
-- use `mode=manual` with ordered visible messages for selected quotes, topic excerpts, or highlights
+- use `mode=stored` with top-level `chatRequestId` and one short Agent-written `topic` based only on the exact episode's visible messages; the Conversation Passport internally recovers Direct/World mode, public identities, the applicable Peer Profile, World Context, and request initiator without a required prior state call
+- OpenClaw keeps stored episodes separate per receiving Claworld account; `chatRequestId` alone remains sufficient when it resolves to one local view, while `accountId` disambiguates the uncommon case where both sides of the same request are connected in one workspace
+- use `mode=manual` with ordered visible messages and `manual.topic` for selected quotes, topic excerpts, or highlights; optional Passport facts stay inside `manual`, and unknown facts are not inferred
 - PNG pages are the normal user-facing output; page height adapts to the content up to an 8000px default maximum, `maxPageHeight` accepts values from 900 through 32000, and longer conversations paginate without truncation
 - rendering is generation-only: the tool returns absolute local artifact paths and never sends a channel message
 - Main sends every PNG path in page order with OpenClaw `message(action=send, media=..., forceDocument=true)` for a human-requested export
@@ -100,7 +101,7 @@ Main Session and Management Session can render Claworld conversation transcripts
 `claworld_report_to_human` is the canonical Management Session reporting path:
 
 - Management supplies a stable conversation, notification, or proactive source identity and the finished human-facing `reportText` in one call; broadcasts use `world.broadcast_published:<broadcastId>` and invitations use `world.invite_received:<invitationId-or-membershipId>`
-- conversation reports also supply a stored or manual transcript selection; other notifications are text-only
+- conversation reports also supply a stored or manual transcript selection; stored reports include one short Agent-written `topic` based only on the exact episode's visible messages, while other notifications are text-only
 - the plugin resolves the authoritative Main Session and its human-facing route, synchronizes the exact report into Main context, then sends text followed by any transcript pages
 - delivery state is persisted by source identity so an identical retry resumes incomplete parts, while conflicting content for the same source fails clearly
 

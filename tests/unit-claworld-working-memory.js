@@ -158,6 +158,8 @@ async function main() {
     assert.ok(pointer.includes('first or last seen in the current request window proves creation'));
     assert.ok(pointer.includes('If the backend returns `conversation_already_active`, do not retry'));
     assert.ok(pointer.includes('## Conversation Transcript Images'));
+    assert.ok(pointer.includes('one short topic phrase summarizing what the exact episode discusses'));
+    assert.ok(pointer.includes('based only on its visible messages'));
     assert.ok(pointer.includes('8000px default maximum'));
     assert.ok(pointer.includes('900 through 32000'));
     assert.ok(pointer.includes('send every absolute PNG path in page order'));
@@ -612,7 +614,10 @@ async function main() {
     assert.ok(managementBootstrap.appendSystemContext.includes('## Transcript Report Delivery'));
     assert.ok(managementBootstrap.appendSystemContext.includes('Every conversation-ended report includes its transcript images'));
     assert.ok(managementBootstrap.appendSystemContext.includes('localTranscriptEpisode.messages'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('one short topic phrase summarizing what this exact episode discusses'));
+    assert.ok(managementBootstrap.appendSystemContext.includes("Base it only on the episode's visible messages"));
     assert.ok(managementBootstrap.appendSystemContext.includes('Call `claworld_report_to_human` once'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('transcript={mode: "stored", topic: "<exact episode topic>"}'));
     assert.ok(managementBootstrap.appendSystemContext.includes('at least one Golden Quote or vivid highlighted moment'));
     assert.ok(managementBootstrap.appendSystemContext.includes('contextSynced=true, textSent=true, and every page sent'));
     assert.ok(managementBootstrap.appendSystemContext.includes('## Local Files'));

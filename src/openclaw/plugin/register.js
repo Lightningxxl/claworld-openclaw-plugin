@@ -28,6 +28,7 @@ import { resolveOpenClawWorkspaceRoot } from '../runtime/workspace-resolver.js';
 import {
   MAX_PAGE_HEIGHT,
   augmentConversationPayloadWithLocalTranscriptIndex,
+  cacheClaworldConversationDirections,
   renderTranscriptReport,
 } from '../runtime/transcript-report.js';
 import { deliverClaworldManagementReport } from '../runtime/management-report.js';
@@ -157,6 +158,61 @@ async function resolveTranscriptWorkspace(api, params = {}, toolContext = {}) {
       agentId,
     }),
   };
+}
+
+function resolveConfiguredConversationView(plugin, cfg, {
+  accountId = null,
+  relayAgentId = null,
+  targetAgentId = null,
+} = {}) {
+  const normalizedAccountId = normalizeText(accountId, null);
+  const expectedRelayAgentId = normalizeText(relayAgentId, normalizeText(targetAgentId, null));
+  if (normalizedAccountId) {
+    let runtimeConfig = {};
+    try {
+      runtimeConfig = plugin.config?.resolveRuntimeConfig?.(cfg, normalizedAccountId) || {};
+    } catch {
+      runtimeConfig = {};
+    }
+    return {
+      accountId: normalizedAccountId,
+      relayAgentId: normalizeText(expectedRelayAgentId, normalizeText(runtimeConfig?.relay?.agentId, null)),
+    };
+  }
+  if (!expectedRelayAgentId) return null;
+  const accountIds = plugin.config?.listAccountIds?.(cfg) || [];
+  const matches = accountIds.map((candidateAccountId) => {
+    const runtimeConfig = plugin.config?.resolveRuntimeConfig?.(cfg, candidateAccountId) || {};
+    return {
+      accountId: candidateAccountId,
+      relayAgentId: normalizeText(runtimeConfig?.relay?.agentId, null),
+    };
+  }).filter((candidate) => candidate.relayAgentId === expectedRelayAgentId);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function resolveTranscriptClaworldAccountId(params = {}, toolContext = {}) {
+  const explicitAccountId = normalizeText(params.accountId, null);
+  if (explicitAccountId) return explicitAccountId;
+  const deliveryContext = normalizeObject(toolContext.deliveryContext, {}) || {};
+  const channel = normalizeText(
+    toolContext.messageChannel,
+    normalizeText(deliveryContext.channel, null),
+  );
+  return channel === 'claworld' ? normalizeText(deliveryContext.accountId, null) : null;
+}
+
+async function cacheToolConversationDirections(api, plugin, params, toolContext, payload) {
+  try {
+    const { cfg, workspaceRoot } = await resolveTranscriptWorkspace(api, params, toolContext);
+    if (workspaceRoot) {
+      const view = resolveConfiguredConversationView(plugin, cfg, { accountId: params.accountId });
+      await cacheClaworldConversationDirections(workspaceRoot, payload, view || {});
+    }
+  } catch {
+    // Backend actions remain successful when the local transcript cache is unavailable.
+  }
+  return payload;
 }
 
 function buildClaworldStatusRoute(plugin) {
@@ -1454,11 +1510,13 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             openingPayload: params.openingPayload || null,
             worldId: params.worldId || null,
           });
-          return buildToolResult({
+          const projected = {
             ...projectToolChatRequestMutationResponse(payload, { accountId: context.accountId }),
             tool: manageConversationsTool,
             action,
-          });
+          };
+          await cacheToolConversationDirections(api, plugin, params, toolContext, projected);
+          return buildToolResult(projected);
         }
         if (action === 'list_related' || action === 'get_state') {
           const filters = normalizeManageConversationInboxQuery(params, action);
@@ -1470,11 +1528,13 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           const rewritten = rewriteToolResultName(result, manageConversationsTool, action);
           const payload = parseToolResultPayload(rewritten);
           if (!payload) return rewritten;
-          const { workspaceRoot } = await resolveTranscriptWorkspace(api, params, toolContext);
+          const { cfg, workspaceRoot } = await resolveTranscriptWorkspace(api, params, toolContext);
+          const view = resolveConfiguredConversationView(plugin, cfg, { accountId: params.accountId }) || {};
           const augmented = await augmentConversationPayloadWithLocalTranscriptIndex({
             workspaceRoot,
             payload,
             filters,
+            ...view,
           });
           return buildToolResult(augmented);
         }
@@ -1483,7 +1543,12 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             ...params,
             action,
           });
-          return rewriteToolResultName(result, manageConversationsTool, action);
+          const rewritten = rewriteToolResultName(result, manageConversationsTool, action);
+          const payload = parseToolResultPayload(rewritten);
+          if (payload) {
+            await cacheToolConversationDirections(api, plugin, params, toolContext, payload);
+          }
+          return rewritten;
         }
         if (action === 'close') {
           const conversationKey = normalizeText(params.conversationKey, null);
@@ -1510,13 +1575,15 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
     {
       name: renderTranscriptTool,
       label: 'Claworld Render Transcript Report',
-      description: 'Generate local transcript artifacts only; this tool never sends a channel message. Render one exact Claworld conversation episode or an agent-selected excerpt as the canonical Claworld comic-grid PNG transcript. Page height adapts to the content up to an 8000px default maximum, and longer transcripts continue on additional pages. Use mode=stored with stored.chatRequestId for a complete indexed episode. Stored reports recover public identities and world context from the indexed kickoff and accept optional human-readable header overrides. Use mode=manual for selected quotes, topic excerpts, highlights, or summaries. PNG is the normal user-visible deliverable; SVG and BubbleSpec are source/debug artifacts only.',
+      description: 'Generate local transcript artifacts only; this tool never sends a channel message. Render one exact Claworld conversation episode or an agent-selected excerpt as the canonical comic-grid Conversation Passport. For every new stored call provide top-level mode=stored, chatRequestId, and one short topic phrase summarizing what the exact episode discusses, based only on its visible messages. Stored rendering internally recovers mode, public identities, the applicable profile, World context, and request initiator without requiring a prior state call. Use mode=manual for selected quotes, excerpts, highlights, or summaries and put all manual facts inside manual. Page height adapts to content up to an 8000px default maximum, then continues on additional pages. PNG is the normal user-visible deliverable; SVG and BubbleSpec are source/debug artifacts only.',
       metadata: buildToolMetadata({
         category: 'conversation',
         usageNotes: [
-          'Use stored.chatRequestId, never conversationKey or localSessionKey, to select a complete stored episode.',
-          'Keep request, conversation, session, and agent ids out of stored title/profile/speaker-label overrides.',
-          'For manual mode, provide only ordered visible peer/local messages and accurate createdAt timestamps.',
+          'Use top-level chatRequestId, never conversationKey or localSessionKey, to select a complete stored episode.',
+          'If one chatRequestId has more than one receiving-account view in the local workspace, pass the confirmed top-level accountId; Claworld Management context supplies its own account view automatically.',
+          'For every new stored call, write one short topic phrase summarizing what the exact episode discusses. Base it only on the episode\'s visible messages.',
+          'Keep request, conversation, session, World, and agent ids out of all visible fallback fields.',
+          'For manual mode, provide only ordered visible peer/local messages. Add createdAt only when it is reliable, and never infer initiatedBy from the first visible message.',
           'This tool only writes local artifacts and returns absolute paths. It never sends a channel message.',
           'After rendering, send every artifacts.pngPages[].path value in page order with OpenClaw message(action=send, media=..., forceDocument=true). Include forceDocument=true on every channel so transcript PNGs use document/file delivery.',
           'Treat the transcript as delivered only after every rendered PNG page has been sent successfully.',
@@ -1531,51 +1598,85 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             description: 'stored renders one indexed local episode by chatRequestId; manual renders exactly manual.messages.',
             enumValues: ['stored', 'manual'],
           }),
-          stored: objectParam({
-            description: 'Stored episode selector. Provide only with mode=stored.',
-            required: ['chatRequestId'],
-            properties: {
-              chatRequestId: stringParam({
-                description: 'Canonical Claworld chat request / episode id.',
-                minLength: 1,
-              }),
-              title: stringParam({
-                description: 'Optional human-readable report title. Defaults to public peer/world context from the indexed kickoff.',
-                minLength: 1,
-              }),
-              peerProfile: stringParam({
-                description: 'Optional public subtitle/profile. Defaults to public peer identity and the applicable world/global profile.',
-                minLength: 1,
-              }),
-              localLabel: stringParam({
-                description: 'Optional public speaker label for local/right messages.',
-                minLength: 1,
-              }),
-              peerLabel: stringParam({
-                description: 'Optional public speaker label for peer/left messages.',
-                minLength: 1,
-              }),
-            },
+          chatRequestId: stringParam({
+            description: 'Required at top level when mode=stored. Canonical Claworld chat request / episode id.',
+            minLength: 1,
+          }),
+          accountId: stringParam({
+            description: 'Optional receiving Claworld account view. Required only when the same chatRequestId is indexed for more than one local account.',
+            minLength: 1,
+          }),
+          topic: stringParam({
+            description: 'Required for every new stored call: one short topic phrase summarizing what the exact episode discusses, based only on its visible messages.',
+            minLength: 1,
+          }),
+          title: stringParam({
+            description: 'Compatibility alias for topic on legacy stored calls. Prefer topic.',
+            minLength: 1,
+          }),
+          chatMode: stringParam({
+            description: 'Optional stored fallback only when the indexed episode has no trusted mode context.',
+            enumValues: ['direct', 'world'],
+          }),
+          worldName: stringParam({
+            description: 'Optional public World-name fallback for an older stored World episode. Omit for Direct.',
+            minLength: 1,
+          }),
+          initiatedBy: stringParam({
+            description: 'Optional stored fallback only when trusted request direction is unavailable. Never infer it from message order.',
+            enumValues: ['local', 'peer'],
+          }),
+          peerProfile: stringParam({
+            description: 'Optional public fallback. Direct means Peer Global Profile; World means Peer World Membership Profile.',
+            minLength: 1,
+          }),
+          worldContext: stringParam({
+            description: 'Optional public World Context fallback for an older stored World episode. Omit for Direct.',
+            minLength: 1,
+          }),
+          localIdentity: stringParam({
+            description: 'Optional public local/right identity fallback, preferably Name#CODE.',
+            minLength: 1,
+          }),
+          peerIdentity: stringParam({
+            description: 'Optional public peer/left identity fallback, preferably Name#CODE.',
+            minLength: 1,
+          }),
+          localLabel: stringParam({
+            description: 'Compatibility alias for localIdentity on a legacy stored call.',
+            minLength: 1,
+          }),
+          peerLabel: stringParam({
+            description: 'Compatibility alias for peerIdentity on a legacy stored call.',
+            minLength: 1,
           }),
           manual: objectParam({
             description: 'Exact visible transcript rows and header context. Provide only with mode=manual.',
-            required: ['messages', 'title', 'peerProfile', 'localLabel', 'peerLabel'],
+            required: ['messages'],
             properties: {
               messages: arrayParam({
                 description: 'Ordered visible transcript rows.',
                 items: objectParam({
-                  required: ['from', 'text', 'createdAt'],
+                  required: ['from', 'text'],
                   properties: {
                     from: stringParam({ description: 'peer=left; local=right.', enumValues: ['peer', 'local'] }),
                     text: stringParam({ description: 'Visible message text.', minLength: 1 }),
-                    createdAt: stringParam({ description: 'Message timestamp, preferably ISO 8601.', minLength: 1 }),
+                    createdAt: stringParam({ description: 'Optional reliable message timestamp, preferably ISO 8601.', minLength: 1 }),
                   },
                 }),
               }),
-              title: stringParam({ description: 'Report header title.', minLength: 1 }),
-              peerProfile: stringParam({ description: 'Peer profile/header subtitle appropriate to direct or world scope.', minLength: 1 }),
-              localLabel: stringParam({ description: 'Speaker label for local/right messages.', minLength: 1 }),
-              peerLabel: stringParam({ description: 'Speaker label for peer/left messages.', minLength: 1 }),
+              topic: stringParam({ description: 'Required for every new Agent call: one short topic phrase summarizing the supplied visible messages. Legacy callers may omit it.', minLength: 1 }),
+              title: stringParam({ description: 'Compatibility alias for manual.topic.', minLength: 1 }),
+              chatMode: stringParam({ description: 'Known chat mode; omit when unknown.', enumValues: ['direct', 'world'] }),
+              worldName: stringParam({ description: 'Public World name for World mode only.', minLength: 1 }),
+              initiatedBy: stringParam({ description: 'Known initiator; omit when unknown.', enumValues: ['local', 'peer'] }),
+              reportType: stringParam({ description: 'full only for complete coverage; excerpt for selected messages; omit when unknown.', enumValues: ['full', 'excerpt'] }),
+              localIdentity: stringParam({ description: 'Public local/right identity, preferably Name#CODE.', minLength: 1 }),
+              peerIdentity: stringParam({ description: 'Public peer/left identity, preferably Name#CODE.', minLength: 1 }),
+              peerProfile: stringParam({ description: 'Direct Peer Global Profile or World Peer Membership Profile.', minLength: 1 }),
+              worldContext: stringParam({ description: 'Public World Context for World mode only.', minLength: 1 }),
+              localLabel: stringParam({ description: 'Compatibility alias for manual.localIdentity.', minLength: 1 }),
+              peerLabel: stringParam({ description: 'Compatibility alias for manual.peerIdentity.', minLength: 1 }),
             },
           }),
           style: stringParam({
@@ -1591,14 +1692,41 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
         },
       }),
       async execute(_toolCallId, params = {}, toolContext = {}) {
-        const { workspaceRoot, agentId } = await resolveTranscriptWorkspace(api, params, toolContext);
+        const { cfg, workspaceRoot, agentId } = await resolveTranscriptWorkspace(api, params, toolContext);
         if (!workspaceRoot) {
           throw new Error('unable to resolve the active OpenClaw workspace for transcript rendering');
         }
+        const selectedAccountId = params.mode === 'stored'
+          ? resolveTranscriptClaworldAccountId(params, toolContext)
+          : null;
+        const episodeView = params.mode === 'stored'
+          ? resolveConfiguredConversationView(plugin, cfg, { accountId: selectedAccountId }) || {}
+          : {};
         const report = await renderTranscriptReport({
           workspaceRoot,
           localAgentId: agentId,
           args: params,
+          episodeView,
+          resolveDirection: async ({ chatRequestId, accountId, relayAgentId, source }) => {
+            if (typeof plugin.helpers?.social?.listChatInbox !== 'function') return null;
+            const view = resolveConfiguredConversationView(plugin, cfg, {
+              accountId,
+              relayAgentId,
+              targetAgentId: source?.targetAgentId,
+            });
+            if (!view) return null;
+            if (source && typeof source === 'object') {
+              source.accountId ||= view.accountId;
+              source.relayAgentId ||= view.relayAgentId;
+            }
+            return await plugin.helpers.social.listChatInbox({
+              cfg,
+              runtime: api.runtime,
+              accountId: view.accountId,
+              ...(view.relayAgentId ? { agentId: view.relayAgentId } : {}),
+              filters: { chatRequestId },
+            });
+          },
         });
         return buildToolResult({ ...report, tool: renderTranscriptTool });
       },
@@ -1613,7 +1741,8 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           'Use this once for every human-facing Management update: conversation result, world invitation, world broadcast, subscription hit, or proactive progress report.',
           'Use source.kind=conversation with source.id equal to the exact chatRequestId and include transcript. For a backend notification use source.kind=notification and omit transcript. Use world.broadcast_published:<broadcastId> for broadcasts, world.invite_received:<invitationId-or-membershipId> for invitations, and the exact notification or batch id for other events.',
           'A normal Management assistant reply is internal and does not reach the human. This tool is the only completed human delivery path for a Management report.',
-          'For conversation transcript, stored renders the complete exact episode and manual renders an intentional excerpt or highlights.',
+          'For a stored conversation transcript, read the exact episode and provide one short topic phrase summarizing what it discusses. Base the topic only on the episode\'s visible messages.',
+          'Stored renders the complete exact episode and manual renders an intentional excerpt or highlights.',
           'The plugin selects the current human-facing Main Session from .claworld/sessions/index.json and its OpenClaw session deliveryContext; do not supply a target session or channel route.',
           'A complete result means the exact report is in Main context, the text was delivered, and every optional transcript page was delivered in page order.',
           'The source identity is the idempotency boundary. Retry the same source and exact arguments to resume incomplete delivery; conflicting content for the same source fails clearly.',
@@ -1658,14 +1787,9 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
                 description: 'stored for the complete episode; manual for an intentional selected excerpt or highlights.',
                 enumValues: ['stored', 'manual'],
               }),
-              presentation: objectParam({
-                description: 'Optional public header overrides for stored mode. Omit to use indexed public identity and world context.',
-                properties: {
-                  title: stringParam({ description: 'Optional human-readable title.', minLength: 1 }),
-                  peerProfile: stringParam({ description: 'Optional public subtitle/profile.', minLength: 1 }),
-                  localLabel: stringParam({ description: 'Optional local/right speaker label.', minLength: 1 }),
-                  peerLabel: stringParam({ description: 'Optional peer/left speaker label.', minLength: 1 }),
-                },
+              topic: stringParam({
+                description: 'Required for stored mode: one short topic phrase summarizing what the exact episode discusses, based only on its visible messages.',
+                minLength: 1,
               }),
               manual: objectParam({
                 description: 'Exact ordered visible rows and public header for manual mode.',

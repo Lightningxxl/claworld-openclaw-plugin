@@ -16,6 +16,70 @@ function normalizeEnvelopeText(value, fallback = null) {
   return normalized || fallback;
 }
 
+function envelopeScopeObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function envelopeScopeRecords(data = {}, payload = {}) {
+  const records = [
+    envelopeScopeObject(data),
+    envelopeScopeObject(payload),
+    envelopeScopeObject(data.metadata),
+    envelopeScopeObject(data.meta),
+    envelopeScopeObject(payload.metadata),
+    envelopeScopeObject(data.notification),
+    envelopeScopeObject(payload.notification),
+  ];
+  for (const record of [...records]) {
+    const relatedObjects = envelopeScopeObject(record.relatedObjects);
+    if (Object.keys(relatedObjects).length) records.push(relatedObjects);
+  }
+  return records;
+}
+
+function resolveEnvelopeScopeConsistency(records, fieldNames, code, message) {
+  const values = records.flatMap((record) => fieldNames.map((fieldName) => (
+    normalizeEnvelopeText(record[fieldName], null)
+  ))).filter(Boolean);
+  const canonical = values[0] || null;
+  if (values.some((candidate) => candidate !== canonical)) {
+    const error = new Error(message);
+    error.code = code;
+    throw error;
+  }
+  return canonical;
+}
+
+function resolveInboundEnvelopeScope(data, payload) {
+  const records = envelopeScopeRecords(data, payload);
+  return {
+    chatRequestId: resolveEnvelopeScopeConsistency(
+      records,
+      ['chatRequestId', 'requestId', 'kickoffRequestId'],
+      'relay_chat_request_scope_mismatch',
+      'relay delivery chatRequestId fields do not agree',
+    ),
+    worldId: resolveEnvelopeScopeConsistency(
+      records,
+      ['worldId'],
+      'relay_world_scope_mismatch',
+      'relay delivery worldId fields do not agree',
+    ),
+    conversationKey: resolveEnvelopeScopeConsistency(
+      records,
+      ['conversationKey'],
+      'relay_conversation_scope_mismatch',
+      'relay delivery conversationKey fields do not agree',
+    ),
+    targetAgentId: resolveEnvelopeScopeConsistency(
+      records,
+      ['targetAgentId'],
+      'relay_target_scope_mismatch',
+      'relay delivery targetAgentId fields do not agree',
+    ),
+  };
+}
+
 function resolveEnvelopeMessageId(data = {}, payload = {}) {
   const notification = payload.notification && typeof payload.notification === 'object' && !Array.isArray(payload.notification)
     ? payload.notification
@@ -50,24 +114,6 @@ function resolveEnvelopeMessageId(data = {}, payload = {}) {
   return null;
 }
 
-function resolveEnvelopeChatRequestId(data = {}, payload = {}, metadata = {}, notification = {}) {
-  const relatedObjects = notification.relatedObjects && typeof notification.relatedObjects === 'object'
-    && !Array.isArray(notification.relatedObjects)
-    ? notification.relatedObjects
-    : {};
-  const candidates = [
-    data.chatRequestId,
-    payload.chatRequestId,
-    metadata.chatRequestId,
-    relatedObjects.chatRequestId,
-  ];
-  for (const candidate of candidates) {
-    const normalized = normalizeEnvelopeText(candidate, null);
-    if (normalized) return normalized;
-  }
-  return null;
-}
-
 export function normalizeRelayWebSocketUrl(serverUrl) {
   const parsed = new URL(serverUrl);
   if (parsed.protocol === 'http:') parsed.protocol = 'ws:';
@@ -89,6 +135,7 @@ export function buildInboundEnvelope(message = {}) {
   const directPayload = data.payload && typeof data.payload === 'object' && !Array.isArray(data.payload)
     ? { ...data.payload }
     : {};
+  const canonicalScope = resolveInboundEnvelopeScope(data, directPayload);
   const metadata = data.metadata && typeof data.metadata === 'object' && !Array.isArray(data.metadata)
     ? { ...data.metadata }
     : directPayload.metadata && typeof directPayload.metadata === 'object' && !Array.isArray(directPayload.metadata)
@@ -121,18 +168,20 @@ export function buildInboundEnvelope(message = {}) {
       if (payload[key] == null && data[key] != null) payload[key] = data[key];
     }
   }
-  const notification = payload.notification && typeof payload.notification === 'object' && !Array.isArray(payload.notification)
-    ? payload.notification
-    : data.notification && typeof data.notification === 'object' && !Array.isArray(data.notification)
-      ? data.notification
-      : {};
-  const targetAgentId = normalizeEnvelopeText(
-    data.targetAgentId,
-    normalizeEnvelopeText(
-      payload.targetAgentId,
-      normalizeEnvelopeText(notification.targetAgentId, normalizeEnvelopeText(metadata.targetAgentId, null)),
-    ),
-  );
+  const dataNotification = envelopeScopeObject(data.notification);
+  const payloadNotification = envelopeScopeObject(payload.notification);
+  const notification = {
+    ...dataNotification,
+    ...payloadNotification,
+    relatedObjects: {
+      ...envelopeScopeObject(dataNotification.relatedObjects),
+      ...envelopeScopeObject(payloadNotification.relatedObjects),
+    },
+  };
+  if (Object.keys(notification).some((key) => (
+    key !== 'relatedObjects' || Object.keys(notification.relatedObjects).length
+  ))) payload.notification = notification;
+  const targetAgentId = canonicalScope.targetAgentId;
   const sessionKey = normalizeEnvelopeText(
     data.sessionKey,
     normalizeEnvelopeText(
@@ -154,34 +203,17 @@ export function buildInboundEnvelope(message = {}) {
     data.eventName,
     normalizeEnvelopeText(payload.eventName, isDeliveryEvent ? null : normalizeEnvelopeText(message.event, null)),
   );
-  const chatRequestId = [
-    data.chatRequestId,
-    data.requestId,
-    payload.chatRequestId,
-    payload.requestId,
-    metadata.kickoffRequestId,
-    metadata.chatRequestId,
-    metadata.requestId,
-    notification.chatRequestId,
-    notification.relatedObjects?.chatRequestId,
-  ].map((candidate) => normalizeEnvelopeText(candidate, null)).find(Boolean) || null;
+  const chatRequestId = canonicalScope.chatRequestId;
   return {
     eventType: eventType || 'delivery',
     eventName,
     eventId: deliveryId,
     deliveryId,
-    chatRequestId: resolveEnvelopeChatRequestId(data, payload, metadata, notification),
     sessionKey,
     targetAgentId,
     chatRequestId,
-    conversationKey: normalizeEnvelopeText(
-      data.conversationKey,
-      normalizeEnvelopeText(payload.conversationKey, normalizeEnvelopeText(notification.relatedObjects?.conversationKey, null)),
-    ),
-    worldId: normalizeEnvelopeText(
-      data.worldId,
-      normalizeEnvelopeText(payload.worldId, normalizeEnvelopeText(notification.relatedObjects?.worldId, null)),
-    ),
+    conversationKey: canonicalScope.conversationKey,
+    worldId: canonicalScope.worldId,
     createdAt: data.createdAt || payload.createdAt || data.availableAt || payload.availableAt || notification.createdAt || null,
     updatedAt: data.updatedAt || payload.updatedAt || notification.updatedAt || null,
     turnCreatedAt: data.turnCreatedAt || null,

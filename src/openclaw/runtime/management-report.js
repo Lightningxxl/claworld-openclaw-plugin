@@ -250,6 +250,15 @@ function normalizeReportSource(input = {}) {
 function normalizeTranscriptRequest(input, chatRequestId) {
   if (input == null) return null;
   const transcript = isObject(input) ? input : {};
+  const unsupportedFields = Object.keys(transcript)
+    .filter((field) => !['mode', 'topic', 'manual', 'maxPageHeight'].includes(field))
+    .sort();
+  if (unsupportedFields.length) {
+    throw reportInputError(
+      'management_report_transcript_field_invalid',
+      `management report transcript contains unsupported field(s): ${unsupportedFields.join(', ')}`,
+    );
+  }
   const mode = text(transcript.mode, null);
   if (!['stored', 'manual'].includes(mode)) {
     throw reportInputError('management_report_transcript_mode_invalid', 'management report transcript.mode must be stored or manual');
@@ -261,16 +270,14 @@ function normalizeTranscriptRequest(input, chatRequestId) {
     if (!chatRequestId) {
       throw reportInputError('management_report_chat_request_id_required', 'management report stored transcript requires source.chatRequestId');
     }
-    const presentation = isObject(transcript.presentation) ? transcript.presentation : {};
+    const topic = text(transcript.topic, null);
+    if (!topic) {
+      throw reportInputError('management_report_transcript_topic_required', 'management report stored transcript requires a topic summarizing the exact episode');
+    }
     return compactObject({
       mode,
-      stored: compactObject({
-        chatRequestId,
-        title: text(presentation.title, null),
-        peerProfile: text(presentation.peerProfile, null),
-        localLabel: text(presentation.localLabel, null),
-        peerLabel: text(presentation.peerLabel, null),
-      }),
+      chatRequestId,
+      topic,
       maxPageHeight,
     });
   }

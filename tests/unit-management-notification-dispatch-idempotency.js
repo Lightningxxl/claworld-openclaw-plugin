@@ -110,6 +110,20 @@ async function bridge(event) {
 }
 
 try {
+  const targetConflict = buildEvent('ntf-target-conflict', 'req-target-conflict');
+  targetConflict.delivery.payload.targetAgentId = 'agt-other';
+  await assert.rejects(
+    () => bridge(targetConflict),
+    (error) => error?.code === 'relay_target_scope_mismatch',
+  );
+  const requestConflict = buildEvent('ntf-request-conflict', 'req-request-conflict');
+  requestConflict.delivery.payload.chatRequestId = 'req-other';
+  await assert.rejects(
+    () => bridge(requestConflict),
+    (error) => error?.code === 'relay_chat_request_scope_mismatch',
+  );
+  assert.equal(dispatchCount, 0);
+
   const first = buildEvent('ntf-first', 'req-first');
   const concurrent = await Promise.all([bridge(first), bridge(first)]);
   assert.equal(dispatchCount, 1);

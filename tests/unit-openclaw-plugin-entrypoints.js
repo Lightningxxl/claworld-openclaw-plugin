@@ -108,16 +108,76 @@ async function main() {
 
   const renderTranscript = toolByName.get('claworld_render_transcript_report');
   assert.ok(renderTranscript, 'expected transcript render tool to register');
-  const storedTranscriptProperties = renderTranscript.parameters?.properties?.stored?.properties || {};
-  for (const field of ['chatRequestId', 'title', 'peerProfile', 'localLabel', 'peerLabel']) {
-    assert.ok(storedTranscriptProperties[field], `expected stored transcript field ${field}`);
+  const transcriptSchema = renderTranscript.parameters || {};
+  const transcriptProperties = transcriptSchema.properties || {};
+  const manualTranscript = transcriptProperties.manual || {};
+  const manualProperties = manualTranscript.properties || {};
+  const manualMessage = manualProperties.messages?.items || {};
+  assert.deepEqual(transcriptSchema.required, ['mode']);
+  assert.equal(transcriptSchema.additionalProperties, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(transcriptProperties, 'stored'), false);
+  for (const field of [
+    'chatRequestId',
+    'accountId',
+    'topic',
+    'title',
+    'chatMode',
+    'worldName',
+    'initiatedBy',
+    'peerProfile',
+    'worldContext',
+    'localIdentity',
+    'peerIdentity',
+    'localLabel',
+    'peerLabel',
+  ]) {
+    assert.ok(transcriptProperties[field], `expected flat stored transcript field ${field}`);
   }
+  assert.deepEqual(transcriptProperties.chatMode.enum, ['direct', 'world']);
+  assert.deepEqual(transcriptProperties.initiatedBy.enum, ['local', 'peer']);
+  assert.equal(transcriptProperties.topic.minLength, 1);
+  assert.match(transcriptProperties.topic.description, /Required for every new stored call/u);
+  assert.match(transcriptProperties.topic.description, /exact episode discusses.*visible messages/u);
+  assert.match(transcriptProperties.title.description, /Compatibility alias/u);
+  assert.match(transcriptProperties.accountId.description, /more than one local account/u);
+  assert.equal(Object.prototype.hasOwnProperty.call(transcriptProperties, 'reportType'), false);
+
+  assert.deepEqual(manualTranscript.required, ['messages']);
+  assert.equal(manualTranscript.additionalProperties, false);
+  assert.deepEqual(manualMessage.required, ['from', 'text']);
+  assert.equal(manualMessage.additionalProperties, false);
+  assert.ok(manualMessage.properties.createdAt);
+  assert.equal(manualMessage.properties.createdAt.description.includes('Optional'), true);
+  for (const field of [
+    'topic',
+    'title',
+    'chatMode',
+    'worldName',
+    'initiatedBy',
+    'reportType',
+    'localIdentity',
+    'peerIdentity',
+    'peerProfile',
+    'worldContext',
+    'localLabel',
+    'peerLabel',
+  ]) {
+    assert.ok(manualProperties[field], `expected manual transcript field ${field}`);
+  }
+  assert.deepEqual(manualProperties.reportType.enum, ['full', 'excerpt']);
+  assert.deepEqual(manualProperties.initiatedBy.enum, ['local', 'peer']);
+  assert.match(manualProperties.topic.description, /Required for every new Agent call/u);
+
   const maxPageHeight = renderTranscript.parameters?.properties?.maxPageHeight || {};
   assert.equal(maxPageHeight.minimum, 900);
   assert.equal(maxPageHeight.maximum, 32000);
   assert.ok(maxPageHeight.description.includes('Defaults to 8000'));
   assert.ok(maxPageHeight.description.includes('32000'));
   assert.ok(renderTranscript.description.includes('8000px default maximum'));
+  assert.ok(renderTranscript.description.includes('top-level mode=stored, chatRequestId'));
+  assert.ok(renderTranscript.description.includes('without requiring a prior state call'));
+  assert.ok(renderTranscript.metadata.usageNotes.some((note) => note.includes('one short topic phrase')));
+  assert.ok(renderTranscript.metadata.usageNotes.some((note) => note.includes('never infer initiatedBy')));
   assert.ok(renderTranscript.metadata.usageNotes.some((note) => note.includes('send every artifacts.pngPages[].path')));
   assert.ok(renderTranscript.metadata.usageNotes.some((note) => note.includes('forceDocument=true')));
 
@@ -127,11 +187,21 @@ async function main() {
   assert.ok(reportToHuman.parameters.properties.accountId, 'expected optional standard account selector');
   assert.deepEqual(reportToHuman.parameters.properties.source.properties.kind.enum, ['conversation', 'notification', 'proactive']);
   assert.deepEqual(reportToHuman.parameters.properties.transcript.properties.mode.enum, ['stored', 'manual']);
+  assert.equal(reportToHuman.parameters.properties.transcript.properties.topic.minLength, 1);
+  assert.match(
+    reportToHuman.parameters.properties.transcript.properties.topic.description,
+    /Required for stored mode.*exact episode.*visible messages/u,
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(reportToHuman.parameters.properties.transcript.properties, 'presentation'),
+    false,
+  );
   assert.equal(Object.prototype.hasOwnProperty.call(reportToHuman.parameters.properties, 'sessionKey'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(reportToHuman.parameters.properties, 'channel'), false);
   assert.ok(reportToHuman.description.includes('one call'));
   assert.ok(reportToHuman.description.includes('other notifications deliver text only'));
   assert.ok(reportToHuman.metadata.usageNotes.some((note) => note.includes('normal Management assistant reply is internal')));
+  assert.ok(reportToHuman.metadata.usageNotes.some((note) => note.includes('one short topic phrase')));
   assert.ok(reportToHuman.metadata.usageNotes.some((note) => note.includes('do not supply a target session')));
   assert.ok(reportToHuman.metadata.usageNotes.some((note) => note.includes('idempotency boundary')));
 

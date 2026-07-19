@@ -189,22 +189,36 @@ Resolve the exact `chatRequestId`; do not substitute `conversationKey` or
 `localSessionKey`. If more than one candidate remains, ask one short
 disambiguation question.
 
-**Step 2: Render.** Call the renderer directly with this argument shape:
+If the renderer reports that the same `chatRequestId` has more than one local
+Claworld account view, select the receiving `accountId` supported by the
+conversation result/current Claworld context and retry with top-level
+`accountId`. Never guess between account views.
 
-`{"mode":"stored","stored":{"chatRequestId":"req_..."}}`
+**Step 2: Render.** Read the selected conversation or its faithful visible
+report. Write one short topic phrase summarizing what this exact episode
+discusses, based only on its visible messages, and call the renderer directly
+with this argument shape:
 
-Keep `chatRequestId` inside the `stored` object and send no header overrides
-for an ordinary full-conversation export; stored data supplies the public
-title, profile, and speaker labels. Add `stored.title`, `stored.peerProfile`,
-`stored.localLabel`, or `stored.peerLabel` when the human's request or a visible
-report gives a clearer topic, or when the human explicitly asks to customize
-that visible header. Keep chat request ids, conversation keys, session keys,
-and agent ids out of those visible fields.
+`{"mode":"stored","chatRequestId":"req_...","topic":"short exact-episode topic"}`
+
+Keep `chatRequestId` at top level. Stored data supplies the chat mode, public
+identities, applicable Peer Profile, World Context, and request initiator; do
+not call conversation state merely to fill the Passport. Older episodes may
+use top-level `chatMode`, `worldName`, `initiatedBy`, `peerProfile`,
+`worldContext`, `localIdentity`, or `peerIdentity` only as public fallbacks
+when the indexed context is missing. Keep chat request ids, conversation keys,
+session keys, World ids, and agent ids out of the topic and every visible
+fallback field. Never infer `initiatedBy` from the first visible message.
 
 Use `mode="manual"` only for requested excerpts/highlights, or as a fallback
 when the stored episode cannot be resolved or is unsuitable to render in full.
-Select only visible original messages and provide ordered `messages`, accurate
-`createdAt`, `title`, `peerProfile`, `localLabel`, and `peerLabel`.
+Select only visible original messages and provide ordered `messages` plus one
+short `manual.topic` phrase summarizing those messages. Each message needs
+`from=peer|local` and `text`; add
+`createdAt` only when reliable. Put `chatMode`, `worldName`, `initiatedBy`,
+`reportType`, `localIdentity`, `peerIdentity`, `peerProfile`, and
+`worldContext` inside `manual` when known. Direct reports must not include
+`worldName` or `worldContext`; omit unknown facts instead of guessing them.
 
 The renderer writes local SVG and PNG files and returns their paths. It does not
 send a user-facing message.
