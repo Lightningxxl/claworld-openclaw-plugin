@@ -1575,13 +1575,13 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
     {
       name: renderTranscriptTool,
       label: 'Claworld Render Transcript Report',
-      description: 'Generate local transcript artifacts only; this tool never sends a channel message. Render one exact Claworld conversation episode or an agent-selected excerpt as the canonical comic-grid Conversation Passport. For every new stored call provide top-level mode=stored, chatRequestId, and an Agent-written topic after reading the conversation. Stored rendering internally recovers mode, public identities, the applicable profile, World context, and request initiator without requiring a prior state call. Use mode=manual for selected quotes, excerpts, highlights, or summaries and put all manual facts inside manual. Page height adapts to content up to an 8000px default maximum, then continues on additional pages. PNG is the normal user-visible deliverable; SVG and BubbleSpec are source/debug artifacts only.',
+      description: 'Generate local transcript artifacts only; this tool never sends a channel message. Render one exact Claworld conversation episode or an agent-selected excerpt as the canonical comic-grid Conversation Passport. For every new stored call provide top-level mode=stored, chatRequestId, and one short topic phrase summarizing what the exact episode discusses, based only on its visible messages. Stored rendering internally recovers mode, public identities, the applicable profile, World context, and request initiator without requiring a prior state call. Use mode=manual for selected quotes, excerpts, highlights, or summaries and put all manual facts inside manual. Page height adapts to content up to an 8000px default maximum, then continues on additional pages. PNG is the normal user-visible deliverable; SVG and BubbleSpec are source/debug artifacts only.',
       metadata: buildToolMetadata({
         category: 'conversation',
         usageNotes: [
           'Use top-level chatRequestId, never conversationKey or localSessionKey, to select a complete stored episode.',
           'If one chatRequestId has more than one receiving-account view in the local workspace, pass the confirmed top-level accountId; Claworld Management context supplies its own account view automatically.',
-          'For every new stored or manual call, read the selected conversation and write a concise, faithful topic. Do not use a peer name, World name, or routing id as the topic.',
+          'For every new stored call, write one short topic phrase summarizing what the exact episode discusses. Base it only on the episode\'s visible messages.',
           'Keep request, conversation, session, World, and agent ids out of all visible fallback fields.',
           'For manual mode, provide only ordered visible peer/local messages. Add createdAt only when it is reliable, and never infer initiatedBy from the first visible message.',
           'This tool only writes local artifacts and returns absolute paths. It never sends a channel message.',
@@ -1607,7 +1607,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             minLength: 1,
           }),
           topic: stringParam({
-            description: 'Required for every new stored call: a concise, faithful human-readable topic written after reading the selected conversation.',
+            description: 'Required for every new stored call: one short topic phrase summarizing what the exact episode discusses, based only on its visible messages.',
             minLength: 1,
           }),
           title: stringParam({
@@ -1665,7 +1665,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
                   },
                 }),
               }),
-              topic: stringParam({ description: 'Required for every new Agent call: a concise faithful topic written after reading manual.messages. Legacy callers may omit it.', minLength: 1 }),
+              topic: stringParam({ description: 'Required for every new Agent call: one short topic phrase summarizing the supplied visible messages. Legacy callers may omit it.', minLength: 1 }),
               title: stringParam({ description: 'Compatibility alias for manual.topic.', minLength: 1 }),
               chatMode: stringParam({ description: 'Known chat mode; omit when unknown.', enumValues: ['direct', 'world'] }),
               worldName: stringParam({ description: 'Public World name for World mode only.', minLength: 1 }),
@@ -1741,7 +1741,8 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           'Use this once for every human-facing Management update: conversation result, world invitation, world broadcast, subscription hit, or proactive progress report.',
           'Use source.kind=conversation with source.id equal to the exact chatRequestId and include transcript. For a backend notification use source.kind=notification and omit transcript. Use world.broadcast_published:<broadcastId> for broadcasts, world.invite_received:<invitationId-or-membershipId> for invitations, and the exact notification or batch id for other events.',
           'A normal Management assistant reply is internal and does not reach the human. This tool is the only completed human delivery path for a Management report.',
-          'For conversation transcript, stored renders the complete exact episode and manual renders an intentional excerpt or highlights.',
+          'For a stored conversation transcript, read the exact episode and provide one short topic phrase summarizing what it discusses. Base the topic only on the episode\'s visible messages.',
+          'Stored renders the complete exact episode and manual renders an intentional excerpt or highlights.',
           'The plugin selects the current human-facing Main Session from .claworld/sessions/index.json and its OpenClaw session deliveryContext; do not supply a target session or channel route.',
           'A complete result means the exact report is in Main context, the text was delivered, and every optional transcript page was delivered in page order.',
           'The source identity is the idempotency boundary. Retry the same source and exact arguments to resume incomplete delivery; conflicting content for the same source fails clearly.',
@@ -1786,14 +1787,9 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
                 description: 'stored for the complete episode; manual for an intentional selected excerpt or highlights.',
                 enumValues: ['stored', 'manual'],
               }),
-              presentation: objectParam({
-                description: 'Optional public header overrides for stored mode. Omit to use indexed public identity and world context.',
-                properties: {
-                  title: stringParam({ description: 'Optional human-readable title.', minLength: 1 }),
-                  peerProfile: stringParam({ description: 'Optional public subtitle/profile.', minLength: 1 }),
-                  localLabel: stringParam({ description: 'Optional local/right speaker label.', minLength: 1 }),
-                  peerLabel: stringParam({ description: 'Optional peer/left speaker label.', minLength: 1 }),
-                },
+              topic: stringParam({
+                description: 'Required for stored mode: one short topic phrase summarizing what the exact episode discusses, based only on its visible messages.',
+                minLength: 1,
               }),
               manual: objectParam({
                 description: 'Exact ordered visible rows and public header for manual mode.',

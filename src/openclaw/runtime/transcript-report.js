@@ -975,8 +975,8 @@ export async function augmentConversationPayloadWithLocalTranscriptIndex({
     };
   }
   const exactChatRequestId = text(filters.chatRequestId, null);
-  const exactEntry = exactChatRequestId && isObject(index.conversationEpisodes?.[exactChatRequestId])
-    ? index.conversationEpisodes[exactChatRequestId]
+  const exactEntry = exactChatRequestId
+    ? resolveEpisodeRecord(index, exactChatRequestId, view).entry
     : null;
   if (exactEntry) {
     result.localTranscriptEpisode = episodeDetail(exactChatRequestId, exactEntry);
@@ -1311,10 +1311,15 @@ function parseHeaderContextCandidate(value, source) {
   if (peerSection) {
     parsed.peerIdentity = identity(peerSection);
     const globalProfile = markdownNamedCodeBlock(peerSection, 'Global Profile', 3);
+    const humanProfile = markdownNamedCodeBlock(peerSection, 'Human Profile', 3);
     const worldProfile = markdownNamedCodeBlock(peerSection, 'World Membership Profile', 3);
     if (globalProfile) {
       parsed.globalProfile = squashWhitespace(globalProfile);
       parsed.globalProfileSource = source;
+    }
+    if (humanProfile) {
+      parsed.humanProfile = squashWhitespace(humanProfile);
+      parsed.humanProfileSource = source;
     }
     if (worldProfile) {
       parsed.worldProfile = squashWhitespace(worldProfile);
@@ -1347,14 +1352,16 @@ function mergeHeaderContextCandidate(merged, sources, candidate, source) {
   for (const [key, value] of Object.entries(parsed)) {
     if (
       source === 'untrustedContext'
-      && !['globalProfile', 'globalProfileSource'].includes(key)
+      && !['globalProfile', 'globalProfileSource', 'humanProfile', 'humanProfileSource'].includes(key)
     ) continue;
     if (!text(value, null)) continue;
     const sourceKey = {
       globalProfile: 'globalProfileSource',
+      humanProfile: 'humanProfileSource',
       worldProfile: 'worldProfileSource',
       worldContext: 'worldContextSource',
       globalProfileSource: 'globalProfileSource',
+      humanProfileSource: 'humanProfileSource',
       worldProfileSource: 'worldProfileSource',
       worldContextSource: 'worldContextSource',
     }[key];
@@ -1403,6 +1410,7 @@ function extractStructuredHeaderContext(value, sourceSummary = {}) {
   const initiatedBy = normalizedInitiatedBy(conversation.initiatedBy);
   const peerProfiles = isObject(snapshot.peer?.profiles) ? snapshot.peer.profiles : {};
   const globalProfile = structuredProfileText(peerProfiles.agent);
+  const humanProfile = structuredProfileText(peerProfiles.human);
   const worldProfile = structuredProfileText(peerProfiles.worldAgent);
   const worldContext = structuredProfileText(snapshot.worldIdentity);
   const peerProfile = conversationMode === 'world' ? worldProfile : conversationMode === 'direct' ? globalProfile : '';
@@ -1417,6 +1425,9 @@ function extractStructuredHeaderContext(value, sourceSummary = {}) {
     peerGlobalProfile: globalProfile,
     peerGlobalProfileState: text(peerProfiles.agent?.state, 'missing'),
     peerGlobalProfileSource: globalProfile ? 'structuredV1' : '',
+    peerHumanProfile: humanProfile,
+    peerHumanProfileState: text(peerProfiles.human?.state, 'missing'),
+    peerHumanProfileSource: humanProfile ? 'structuredV1' : '',
     peerWorldProfile: worldProfile,
     peerWorldProfileState: text(peerProfiles.worldAgent?.state, 'missing'),
     peerWorldProfileSource: worldProfile ? 'structuredV1' : '',
@@ -1507,6 +1518,8 @@ function extractTranscriptHeaderContext(rawMessages, source = {}) {
     ...merged,
     peerGlobalProfile: merged.globalProfile,
     peerGlobalProfileSource: merged.globalProfileSource,
+    peerHumanProfile: merged.humanProfile,
+    peerHumanProfileSource: merged.humanProfileSource,
     peerWorldProfile: merged.worldProfile,
     peerWorldProfileSource: merged.worldProfileSource,
     peerProfile,
@@ -1915,16 +1928,50 @@ function transcriptHeader(args, messages, headerContext, title, sourceSummary = 
     }
   }
   const contextBlocks = [];
-  if (contextText) {
-    contextBlocks.push({ kind: contextKind, label: contextLabel, text: contextText, source: contextSource });
-  }
-  if (chatMode === 'world' && worldContext) {
-    contextBlocks.push({
-      kind: 'worldContext',
-      label: 'World Context',
-      text: worldContext,
-      source: worldContextSource,
-    });
+  if (stored) {
+    const storedBlocks = [
+      {
+        kind: 'peerGlobalProfile',
+        label: 'Agent Profile',
+        text: trustedValue(headerContext.peerGlobalProfile),
+        source: text(headerContext.peerGlobalProfileSource, structuredStored ? 'structuredV1' : 'rawKickoffText'),
+      },
+      {
+        kind: 'peerHumanProfile',
+        label: 'Human Profile',
+        text: trustedValue(headerContext.peerHumanProfile),
+        source: text(headerContext.peerHumanProfileSource, structuredStored ? 'structuredV1' : 'rawKickoffText'),
+      },
+    ];
+    if (chatMode === 'world') {
+      storedBlocks.push(
+        {
+          kind: 'worldContext',
+          label: 'World Context',
+          text: worldContext,
+          source: worldContextSource,
+        },
+        {
+          kind: 'peerWorldMembershipProfile',
+          label: 'World Membership Profile',
+          text: trustedValue(headerContext.peerWorldProfile),
+          source: text(headerContext.peerWorldProfileSource, structuredStored ? 'structuredV1' : 'rawKickoffText'),
+        },
+      );
+    }
+    contextBlocks.push(...storedBlocks.filter((block) => block.text));
+  } else {
+    if (contextText) {
+      contextBlocks.push({ kind: contextKind, label: contextLabel, text: contextText, source: contextSource });
+    }
+    if (chatMode === 'world' && worldContext) {
+      contextBlocks.push({
+        kind: 'worldContext',
+        label: 'World Context',
+        text: worldContext,
+        source: worldContextSource,
+      });
+    }
   }
 
   const requestDirection = normalizedRequestDirection(sourceSummary.requestDirection);
@@ -1949,7 +1996,7 @@ function transcriptHeader(args, messages, headerContext, title, sourceSummary = 
     contextLabel,
     contextText,
     contextSource,
-    contextBlocks: contextBlocks.slice(0, 2),
+    contextBlocks: contextBlocks.slice(0, 4),
     dateLabel: transcriptDateLabel(messages, sourceSummary),
     messageCount: messages.length,
   };

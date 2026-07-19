@@ -9,14 +9,13 @@ import {
   graphemeClusters,
   textRuns,
   textUnits,
-  wrapTokens,
   wrapText,
 } from './transcript-report-stylekit.js';
 
 const CANVAS_MARGIN = 24;
 const FRAME_MARGIN = 16;
 export const HEADER_Y = 48;
-export const HEADER_CARD_HEIGHT_FULL = 286;
+export const HEADER_CARD_HEIGHT_FULL = 470;
 export const HEADER_CARD_HEIGHT_NO_CONTEXT = 168;
 export const HEADER_CARD_HEIGHT_COMPACT = 96;
 export const HEADER_BOTTOM_PAD = 20;
@@ -38,17 +37,16 @@ const SMALL_FONT_SIZE = 12;
 const LABEL_FONT_SIZE = 15;
 export const TITLE_FONT_SIZE = 25;
 const LINE_HEIGHT = 29;
-export const HEADER_TOPIC_MAX_UNITS = 20;
-export const HEADER_TOPIC_MAX_LINES = 2;
-export const HEADER_TOPIC_LINE_HEIGHT = 26;
-const HEADER_TOPIC_EMBLEM_HALF_WIDTH = 28;
-const HEADER_TOPIC_EMBLEM_GAP = 12;
+export const HEADER_TOPIC_MAX_UNITS = 26;
 export const HEADER_COMPACT_TOPIC_MAX_UNITS = 26;
-export const CONTEXT_CARD_HEIGHT = 54;
-export const CONTEXT_CARD_GAP = 8;
+export const CONTEXT_CARD_HEIGHT = 76;
+export const CONTEXT_CARD_GAP = 22;
+export const PROFILE_CARD_HEIGHT = 82;
+export const PROFILE_CARD_GAP = 16;
+export const PROFILE_TO_CONTEXT_GAP = 29;
 export const CONTEXT_LABEL_FONT_SIZE = 12;
-export const CONTEXT_TEXT_FONT_SIZE = 13;
-export const CONTEXT_TEXT_LINE_HEIGHT = 18;
+export const CONTEXT_TEXT_FONT_SIZE = 14;
+export const CONTEXT_TEXT_LINE_HEIGHT = 21;
 export const CONTEXT_TEXT_MAX_LINES = 2;
 const CONTEXT_TEXT_BASELINE_CENTER_OFFSET = 4;
 const TAG_HEIGHT = 58;
@@ -59,13 +57,10 @@ const TAG_ROW_GAP = 10;
 const TAG_FALLBACK_MAX_COLS = 10;
 const MAX_VISIBLE_TAGS = 8;
 const TEXT_UNIT_PX = 18;
-export const IDENTITY_CODE_GAP = 3;
-const IDENTITY_DOT_GAP = 5;
-const IDENTITY_EDGE_PADDING = 4;
-export const IDENTITY_NAME_FONT_SIZE = 26;
-export const IDENTITY_CODE_FONT_SIZE = 19;
-export const IDENTITY_COMPACT_NAME_FONT_SIZE = 22;
-export const IDENTITY_COMPACT_CODE_FONT_SIZE = 16;
+export const IDENTITY_NAME_FONT_SIZE = 20;
+export const IDENTITY_CODE_FONT_SIZE = 13;
+export const IDENTITY_COMPACT_NAME_FONT_SIZE = 18;
+export const IDENTITY_COMPACT_CODE_FONT_SIZE = 12;
 export const BLACK = '#090909';
 
 const THEME = Object.freeze({
@@ -258,14 +253,21 @@ export function headerContextBlocks(header, fallbackText = '') {
       source: 'fallback',
     });
   }
-  return blocks.slice(0, 2);
+  return blocks.slice(0, 4);
 }
 
 export function fullHeaderCardHeight(contextBlocks) {
-  const count = Math.min(2, Array.isArray(contextBlocks) ? contextBlocks.length : 0);
-  if (!count) return HEADER_CARD_HEIGHT_NO_CONTEXT;
-  const contentHeight = count * CONTEXT_CARD_HEIGHT + (count - 1) * CONTEXT_CARD_GAP;
-  return Math.min(HEADER_CARD_HEIGHT_FULL, 156 + contentHeight + 14);
+  const ordered = orderedContextBlocks(Array.isArray(contextBlocks) ? contextBlocks : []);
+  if (!ordered.length) return HEADER_CARD_HEIGHT_NO_CONTEXT;
+  const hasProfileRow = ordered.some((block) => ['agent', 'human'].includes(contextCardRole(block)));
+  const detailCount = ordered.filter((block) => !['agent', 'human'].includes(contextCardRole(block))).length;
+  let contentHeight = hasProfileRow ? PROFILE_CARD_HEIGHT : 0;
+  if (hasProfileRow && detailCount) contentHeight += PROFILE_TO_CONTEXT_GAP;
+  if (detailCount) {
+    contentHeight += detailCount * CONTEXT_CARD_HEIGHT;
+    contentHeight += Math.max(0, detailCount - 1) * CONTEXT_CARD_GAP;
+  }
+  return Math.min(HEADER_CARD_HEIGHT_FULL, 153 + contentHeight + 32);
 }
 
 export function transcriptHeaderHeight({ compact = false, header = null, subtitle = '' } = {}) {
@@ -454,7 +456,6 @@ function svgDefs(page) {
     '<pattern id="comicGridMinor" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M 32 0 L 0 0 0 32" fill="none" stroke="#BED1D8" stroke-width="1" stroke-opacity="0.62"/></pattern>',
     '<pattern id="comicGridMajor" width="128" height="128" patternUnits="userSpaceOnUse"><path d="M 128 0 L 0 0 0 128" fill="none" stroke="#AABFC8" stroke-width="1.4" stroke-opacity="0.72"/></pattern>',
     '<linearGradient id="headerAccent" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#47B6FF"/><stop offset="52%" stop-color="#FF4EB4"/><stop offset="100%" stop-color="#FF8A2A"/></linearGradient>',
-    '<linearGradient id="modeOrbitGradient" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#8F72FF"/><stop offset="52%" stop-color="#FF4EB4"/><stop offset="100%" stop-color="#FF963D"/></linearGradient>',
     '<linearGradient id="leftAccent" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#58E58F"/><stop offset="100%" stop-color="#47B6FF"/></linearGradient>',
     '<linearGradient id="rightAccent" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#A871FF"/><stop offset="100%" stop-color="#FF4EB4"/></linearGradient>',
     '<filter id="comicLift" x="-6%" y="-16%" width="112%" height="132%"><feDropShadow dx="0" dy="2" stdDeviation="1.2" flood-color="#000000" flood-opacity="0.14"/></filter>',
@@ -493,29 +494,6 @@ export function renderInlineTextSvg(
     return `<tspan class="${classes}" font-weight="${weight}">${escapeXml(visibleRun)}</tspan>`;
   }).join('\n');
   return `<text class="${baseClasses.join(' ')}" x="${fixed(x)}" y="${fixed(y)}"${anchorAttribute} font-size="${fontSize}" font-weight="${fontWeight}" fill="${fill}">${spans}</text>`;
-}
-
-function starPoints(cx, cy, radius) {
-  return [
-    [cx, cy - radius],
-    [cx + radius * 0.28, cy - radius * 0.28],
-    [cx + radius, cy],
-    [cx + radius * 0.28, cy + radius * 0.28],
-    [cx, cy + radius],
-    [cx - radius * 0.28, cy + radius * 0.28],
-    [cx - radius, cy],
-    [cx - radius * 0.28, cy - radius * 0.28],
-  ];
-}
-
-function decorativeStarSvg(cx, cy, radius, fill, accent) {
-  const points = (offsetX, offsetY) => starPoints(cx + offsetX, cy + offsetY, radius)
-    .map(([x, y]) => `${fixed(x)},${fixed(y)}`)
-    .join(' ');
-  return [
-    `<polygon points="${points(3, 5)}" fill="${accent}"/>`,
-    `<polygon points="${points(0, 0)}" fill="${fill}" stroke="${BLACK}" stroke-width="3"/>`,
-  ].join('\n');
 }
 
 function cleanHeaderTitle(title) {
@@ -566,10 +544,12 @@ export function passportData(page) {
     block.label ? `${block.label}: ${block.text}` : block.text
   )).join(' · ');
   const dateLabel = headerValue(header, 'dateLabel', 'date_label');
-  const countLabel = messageCountLabel(headerValue(header, 'messageCount', 'message_count'));
+  const reportType = headerValue(header, 'reportType', 'report_type').toLowerCase();
+  const messageLabel = messageCountLabel(headerValue(header, 'messageCount', 'message_count'));
+  const countLabel = [reportType.toUpperCase(), messageLabel].filter(Boolean).join(' · ');
   return {
     mode,
-    modeLabel: `${mode.toUpperCase()} · 1:1`,
+    modeLabel: ['direct', 'world'].includes(mode) ? `${mode.toUpperCase()} CHAT` : 'CLAWORLD CHAT',
     topic,
     worldName,
     participants: participantsAccessibleText(peerIdentity, localIdentity, initiatedBy),
@@ -578,7 +558,7 @@ export function passportData(page) {
     initiatedBy,
     context,
     contextBlocks,
-    reportType: headerValue(header, 'reportType', 'report_type').toLowerCase(),
+    reportType,
     dateLabel,
     countLabel,
     meta: [dateLabel, countLabel].filter(Boolean).join(' · '),
@@ -623,37 +603,7 @@ export function topicRenderUnits(text) {
   return identityNameRenderWidth(text, TITLE_FONT_SIZE) / TITLE_FONT_SIZE;
 }
 
-function wrapTopicText(text, maxUnits) {
-  const lines = [];
-  for (const paragraph of String(text || '').split(/\r?\n/u)) {
-    let current = '';
-    for (const token of wrapTokens(paragraph)) {
-      if (/^\s+$/u.test(token)) {
-        if (current && topicRenderUnits(`${current} `) <= maxUnits) current += ' ';
-        continue;
-      }
-      if (current && topicRenderUnits(current + token) > maxUnits) {
-        lines.push(current.trimEnd());
-        current = '';
-      }
-      if (topicRenderUnits(token) > maxUnits) {
-        for (const cluster of graphemeClusters(token)) {
-          if (current && topicRenderUnits(current + cluster) > maxUnits) {
-            lines.push(current.trimEnd());
-            current = '';
-          }
-          current += cluster;
-        }
-      } else {
-        current += token;
-      }
-    }
-    if (current || !lines.length) lines.push(current.trimEnd());
-  }
-  return lines;
-}
-
-function ellipsizeTopicText(text, maxUnits, suffix = '…') {
+export function ellipsizeTopicText(text, maxUnits, suffix = '…') {
   const value = String(text || '');
   if (topicRenderUnits(value) <= maxUnits) return value;
   const allowed = Math.max(0, maxUnits - topicRenderUnits(suffix));
@@ -663,18 +613,6 @@ function ellipsizeTopicText(text, maxUnits, suffix = '…') {
     kept += cluster;
   }
   return `${kept.trimEnd()}${suffix}`;
-}
-
-export function topicLines(topic, maxUnits = HEADER_TOPIC_MAX_UNITS) {
-  const lines = wrapTopicText(String(topic || '').trim(), maxUnits);
-  if (lines.length <= HEADER_TOPIC_MAX_LINES) return lines.length ? lines : ['Claworld conversation'];
-  const visible = lines.slice(0, HEADER_TOPIC_MAX_LINES - 1);
-  const remainder = lines.slice(HEADER_TOPIC_MAX_LINES - 1)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join(' ');
-  visible.push(ellipsizeTopicText(remainder, maxUnits));
-  return visible;
 }
 
 function pageLabel(page) {
@@ -756,21 +694,6 @@ export function splitIdentity(identity) {
   return [value, ''];
 }
 
-export function ellipsizeIdentityParts(identity, maxWidth, nameFontSize, codeFontSize) {
-  const [name, code] = splitIdentity(identity);
-  const codeWidth = identityNameRenderWidth(code, codeFontSize);
-  const nameWidth = identityNameRenderWidth(name, nameFontSize);
-  const codeGap = code ? IDENTITY_CODE_GAP : 0;
-  if (nameWidth + codeGap + codeWidth <= maxWidth) return [name, code];
-  if (code) {
-    const nameBudget = maxWidth - codeGap - codeWidth;
-    if (nameBudget >= identityNameRenderWidth('…', nameFontSize)) {
-      return [ellipsizeIdentityName(name, nameBudget, nameFontSize), code];
-    }
-  }
-  return [ellipsizeIdentityName(String(identity || '').trim(), maxWidth, nameFontSize), ''];
-}
-
 function ellipsizeIdentityName(value, maxWidth, fontSize) {
   const name = String(value || '').trim();
   if (identityNameRenderWidth(name, fontSize) <= maxWidth) return name;
@@ -785,73 +708,55 @@ function ellipsizeIdentityName(value, maxWidth, fontSize) {
   return `${kept.trimEnd()}${suffix}`;
 }
 
-function renderIdentityTextSvg(name, code, x, y, nameFontSize, codeFontSize, className) {
-  const nameWidth = identityNameRenderWidth(name, nameFontSize);
-  if (!code) {
-    return renderInlineTextSvg(name, x, y, {
+function renderIdentityTextSvg(name, code, x, nameY, codeY, nameFontSize, codeFontSize, className) {
+  const parts = [
+    renderInlineTextSvg(name, x, nameY, {
       fontSize: nameFontSize,
       fontWeight: 900,
       fill: BLACK,
       anchor: 'middle',
       className: `${className}-name identity-name identity-text`,
-    });
-  }
-  const codeWidth = identityNameRenderWidth(code, codeFontSize);
-  const combinedWidth = nameWidth + IDENTITY_CODE_GAP + codeWidth;
-  const dividerX = x - combinedWidth / 2 + nameWidth;
-  return [
-    renderInlineTextSvg(name, dividerX, y, {
-      fontSize: nameFontSize,
-      fontWeight: 900,
-      fill: BLACK,
-      anchor: 'end',
-      className: `${className}-name identity-name identity-text`,
     }),
-    renderInlineTextSvg(code, dividerX + IDENTITY_CODE_GAP, y, {
+  ];
+  if (code) {
+    parts.push(renderInlineTextSvg(code, x, codeY, {
       fontSize: codeFontSize,
       fontWeight: 800,
       fill: '#68645F',
+      anchor: 'middle',
       className: `${className}-code identity-code identity-text`,
-    }),
-  ].join('\n');
+    }));
+  }
+  return parts.join('\n');
 }
 
 export function identityLabelSvg(x, y, width, identity, dotFill, className, compact) {
-  const height = compact ? 36 : 40;
+  const dotY = y + (compact ? 10 : 15);
   const radius = compact ? 5 : 6;
   const nameFontSize = compact ? IDENTITY_COMPACT_NAME_FONT_SIZE : IDENTITY_NAME_FONT_SIZE;
   const codeFontSize = compact ? IDENTITY_COMPACT_CODE_FONT_SIZE : IDENTITY_CODE_FONT_SIZE;
-  const identityY = y + (compact ? 28 : 30);
-  const dotWidth = radius * 2;
-  const availablePx = Math.max(
-    18,
-    width - dotWidth - IDENTITY_DOT_GAP - IDENTITY_EDGE_PADDING * 2,
-  );
-  const [visibleName, visibleCode] = ellipsizeIdentityParts(
-    identity,
-    availablePx,
-    nameFontSize,
-    codeFontSize,
-  );
+  const nameY = y + (compact ? 17 : 21);
+  const codeY = y + (compact ? 32 : 40);
+  const dotGap = 4;
+  const dotReserve = radius * 2 + dotGap + 2;
+  const availablePx = Math.max(18, width - dotReserve * 2);
+  const [rawName, rawCode] = splitIdentity(identity);
+  const visibleName = ellipsizeIdentityName(rawName, availablePx, nameFontSize);
+  const visibleCode = ellipsizeText(rawCode, availablePx / codeFontSize, '…');
   const nameWidth = identityNameRenderWidth(visibleName, nameFontSize);
-  const codeWidth = identityNameRenderWidth(visibleCode, codeFontSize);
-  const visibleGap = visibleCode ? IDENTITY_CODE_GAP : 0;
-  const textWidth = nameWidth + visibleGap + codeWidth;
-  const groupWidth = dotWidth + IDENTITY_DOT_GAP + textWidth;
-  const groupX = x + (width - groupWidth) / 2;
-  const dotX = groupX + radius;
-  const textCenterX = groupX + dotWidth + IDENTITY_DOT_GAP + textWidth / 2;
+  const textCenterX = x + width / 2;
+  const dotX = textCenterX - nameWidth / 2 - dotGap - radius;
   return [
     `<g class="identity-label ${className}">`,
     `<title>${escapeXml(identity)}</title>`,
-    `<circle cx="${fixed(dotX)}" cy="${fixed(y + height / 2)}" r="${radius}" fill="${dotFill}" stroke="${BLACK}" stroke-width="2"/>`,
-    renderIdentityTextSvg(visibleName, visibleCode, textCenterX, identityY, nameFontSize, codeFontSize, className),
+    `<circle cx="${fixed(dotX)}" cy="${fixed(dotY)}" r="${radius}" fill="${dotFill}" stroke="${BLACK}" stroke-width="2"/>`,
+    renderIdentityTextSvg(visibleName, visibleCode, textCenterX, nameY, codeY, nameFontSize, codeFontSize, className),
     '</g>',
   ].join('\n');
 }
 
 export function identityRouteSvg(x, y, width, peerIdentity, localIdentity, initiatedBy, compact = false) {
-  const height = compact ? 36 : 40;
+  const height = compact ? 38 : 44;
   const gap = compact ? 8 : 12;
   const centerWidth = compact ? 42 : 46;
   const routeCenter = x + width / 2;
@@ -885,31 +790,69 @@ export function identityRouteSvg(x, y, width, peerIdentity, localIdentity, initi
   ].join('\n');
 }
 
-export function contextFieldLabelLines(kind, label) {
-  const semanticLabels = {
-    peerGlobalProfile: ['PEER', 'PROFILE'],
-    peerWorldMembershipProfile: ['PEER', 'WORLD'],
-    worldContext: ['WORLD', 'CONTEXT'],
-  };
-  if (semanticLabels[kind]) return semanticLabels[kind];
-  const words = String(label || '').replaceAll('·', ' ').split(/\s+/u).filter(Boolean);
-  if (words.length <= 1) return words.length ? words : ['PROFILE'];
-  return [words[0], words.slice(1).join(' ')];
+export function contextCardRole(block) {
+  const kind = String(block?.kind || '').trim();
+  if (['peerAgentProfile', 'peerGlobalProfile', 'agentProfile'].includes(kind)) return 'agent';
+  if (['peerHumanProfile', 'humanProfile'].includes(kind)) return 'human';
+  if (['worldContext', 'worldIdentity'].includes(kind)) return 'world';
+  if (['peerWorldMembershipProfile', 'peerWorldProfile', 'worldAgentProfile'].includes(kind)) return 'role';
+  return 'detail';
+}
+
+export function orderedContextBlocks(blocks) {
+  const order = { agent: 0, human: 1, world: 2, role: 3, detail: 4 };
+  return [...blocks]
+    .map((block, index) => ({ block, index }))
+    .sort((left, right) => (
+      order[contextCardRole(left.block)] - order[contextCardRole(right.block)]
+      || left.index - right.index
+    ))
+    .slice(0, 4)
+    .map(({ block }) => block);
+}
+
+export function contextCardLabel(kind, fallback) {
+  return {
+    agent: 'About this agent',
+    human: 'About their human',
+    world: 'About this world',
+    role: 'Their role here',
+  }[contextCardRole({ kind })] || String(fallback || 'Profile').trim();
 }
 
 export function contextFieldIconSvg(cx, cy, kind) {
-  if (kind === 'worldContext') {
+  const role = contextCardRole({ kind });
+  const fill = role === 'world' ? THEME.worldBadge : THEME.leftLabel;
+  if (role === 'world') {
     return [
       '<g class="context-icon context-icon-world">',
-      `<circle cx="${fixed(cx)}" cy="${fixed(cy)}" r="8.2" fill="${THEME.worldBadge}" stroke="${BLACK}" stroke-width="2"/>`,
-      `<path d="M${fixed(cx - 7.1)} ${fixed(cy)} H${fixed(cx + 7.1)} M${fixed(cx)} ${fixed(cy - 7.1)} C${fixed(cx - 3.5)} ${fixed(cy - 2.4)} ${fixed(cx - 3.5)} ${fixed(cy + 2.4)} ${fixed(cx)} ${fixed(cy + 7.1)} M${fixed(cx)} ${fixed(cy - 7.1)} C${fixed(cx + 3.5)} ${fixed(cy - 2.4)} ${fixed(cx + 3.5)} ${fixed(cy + 2.4)} ${fixed(cx)} ${fixed(cy + 7.1)}" fill="none" stroke="${BLACK}" stroke-width="1.3" stroke-linecap="round"/>`,
+      `<circle cx="${fixed(cx)}" cy="${fixed(cy)}" r="7" fill="${fill}" stroke="${BLACK}" stroke-width="1.5"/>`,
+      `<path d="M${fixed(cx - 6)} ${fixed(cy)} H${fixed(cx + 6)} M${fixed(cx)} ${fixed(cy - 6)} C${fixed(cx - 3)} ${fixed(cy - 2)} ${fixed(cx - 3)} ${fixed(cy + 2)} ${fixed(cx)} ${fixed(cy + 6)} M${fixed(cx)} ${fixed(cy - 6)} C${fixed(cx + 3)} ${fixed(cy - 2)} ${fixed(cx + 3)} ${fixed(cy + 2)} ${fixed(cx)} ${fixed(cy + 6)}" fill="none" stroke="${BLACK}" stroke-width="1" stroke-linecap="round"/>`,
+      '</g>',
+    ].join('\n');
+  }
+  if (role === 'role') {
+    return [
+      '<g class="context-icon context-icon-role">',
+      `<path d="M${fixed(cx)} ${fixed(cy + 8)} C${fixed(cx - 5)} ${fixed(cy + 2)}, ${fixed(cx - 7)} ${fixed(cy - 1)}, ${fixed(cx - 7)} ${fixed(cy - 4)} A7 7 0 1 1 ${fixed(cx + 7)} ${fixed(cy - 4)} C${fixed(cx + 7)} ${fixed(cy - 1)}, ${fixed(cx + 5)} ${fixed(cy + 2)}, ${fixed(cx)} ${fixed(cy + 8)} Z" fill="${fill}" stroke="${BLACK}" stroke-width="1.5" stroke-linejoin="round"/>`,
+      `<circle cx="${fixed(cx)}" cy="${fixed(cy - 4)}" r="2.2" fill="${THEME.passportStrip}" stroke="${BLACK}" stroke-width="1.2"/>`,
+      '</g>',
+    ].join('\n');
+  }
+  if (role === 'agent') {
+    return [
+      '<g class="context-icon context-icon-agent">',
+      `<line x1="${fixed(cx)}" y1="${fixed(cy - 8)}" x2="${fixed(cx)}" y2="${fixed(cy - 5)}" stroke="${BLACK}" stroke-width="1.4"/>`,
+      `<circle cx="${fixed(cx)}" cy="${fixed(cy - 9)}" r="1.4" fill="${fill}" stroke="${BLACK}" stroke-width="1"/>`,
+      `<rect x="${fixed(cx - 7)}" y="${fixed(cy - 5)}" width="14" height="11" rx="3" fill="${fill}" stroke="${BLACK}" stroke-width="1.5"/>`,
+      `<circle cx="${fixed(cx - 3)}" cy="${fixed(cy)}" r="1.2" fill="${BLACK}"/><circle cx="${fixed(cx + 3)}" cy="${fixed(cy)}" r="1.2" fill="${BLACK}"/>`,
       '</g>',
     ].join('\n');
   }
   return [
-    '<g class="context-icon context-icon-profile">',
-    `<circle cx="${fixed(cx)}" cy="${fixed(cy - 6.5)}" r="4.7" fill="${THEME.leftLabel}" stroke="${BLACK}" stroke-width="1.9"/>`,
-    `<path d="M${fixed(cx - 8)} ${fixed(cy + 9)} C${fixed(cx - 8)} ${fixed(cy + 2)} ${fixed(cx - 4)} ${fixed(cy - 0.5)} ${fixed(cx)} ${fixed(cy - 0.5)} C${fixed(cx + 4)} ${fixed(cy - 0.5)} ${fixed(cx + 8)} ${fixed(cy + 2)} ${fixed(cx + 8)} ${fixed(cy + 9)} Z" fill="${THEME.leftLabel}" stroke="${BLACK}" stroke-width="1.9" stroke-linejoin="round"/>`,
+    '<g class="context-icon context-icon-human">',
+    `<circle cx="${fixed(cx)}" cy="${fixed(cy - 4)}" r="4" fill="${fill}" stroke="${BLACK}" stroke-width="1.5"/>`,
+    `<path d="M${fixed(cx - 7)} ${fixed(cy + 7)} C${fixed(cx - 7)} ${fixed(cy + 1)}, ${fixed(cx - 4)} ${fixed(cy)}, ${fixed(cx)} ${fixed(cy)} C${fixed(cx + 4)} ${fixed(cy)}, ${fixed(cx + 7)} ${fixed(cy + 1)}, ${fixed(cx + 7)} ${fixed(cy + 7)} Z" fill="${fill}" stroke="${BLACK}" stroke-width="1.5" stroke-linejoin="round"/>`,
     '</g>',
   ].join('\n');
 }
@@ -917,7 +860,8 @@ export function contextFieldIconSvg(cx, cy, kind) {
 export function boundedContextLines(text, contentWidth) {
   const value = String(text || '').replace(/\s+/gu, ' ').trim();
   if (!value) return [];
-  const maxUnits = Math.max(4, contentWidth / CONTEXT_TEXT_FONT_SIZE);
+  let maxUnits = Math.max(4, contentWidth / CONTEXT_TEXT_FONT_SIZE);
+  if (isLatinText(value)) maxUnits /= 0.82;
   const lines = wrapText(value, maxUnits);
   const visible = lines.slice(0, CONTEXT_TEXT_MAX_LINES);
   if (lines.length > CONTEXT_TEXT_MAX_LINES && visible.length) {
@@ -928,40 +872,45 @@ export function boundedContextLines(text, contentWidth) {
   return visible;
 }
 
-export function renderContextCard(x, y, width, block) {
+function isLatinText(value) {
+  const runs = textRuns(value).filter(([run]) => run.trim());
+  return runs.length > 0
+    && runs.every(([, script]) => script === 'default')
+    && /\p{Letter}/u.test(value);
+}
+
+export function renderContextCard(x, y, width, block, compact = false) {
   const kind = String(block?.kind || 'profile');
-  const label = String(block?.label || 'Profile').trim().toUpperCase();
+  const label = contextCardLabel(kind, block?.label);
   const text = String(block?.text || '').replace(/\s+/gu, ' ').trim();
-  const labelWidth = 132;
-  const dividerX = x + labelWidth;
-  const contentX = dividerX + 14;
-  const contentWidth = Math.max(48, x + width - 14 - contentX);
+  const cardHeight = compact ? PROFILE_CARD_HEIGHT : CONTEXT_CARD_HEIGHT;
+  const contentX = x + 27;
+  const contentWidth = Math.max(48, width - 54);
   const lines = boundedContextLines(text, contentWidth);
-  const labelLines = contextFieldLabelLines(kind, label);
   const classKind = kind.toLowerCase().replace(/[^\p{Letter}\p{Number}]+/gu, '-').replace(/^-|-$/gu, '') || 'profile';
-  const accent = kind === 'worldContext' ? THEME.worldBadge : THEME.leftLabel;
-  const accessible = text ? `${label}: ${text}` : label;
+  const accent = contextCardRole(block) === 'world' ? THEME.worldBadge : THEME.leftLabel;
+  const accessibleText = ellipsizeText(text, 120, '…');
+  const accessible = accessibleText ? `${label}: ${accessibleText}` : label;
+  const legendWidth = Math.max(
+    64,
+    Math.min(width - 40, 42 + identityNameRenderWidth(label, CONTEXT_LABEL_FONT_SIZE)),
+  );
   const parts = [
     `<g class="passport-context-field context-${classKind}" role="group" aria-label="${escapeXml(accessible)}">`,
     `<title>${escapeXml(accessible)}</title>`,
-    `<rect x="${fixed(x + 3)}" y="${fixed(y + 3)}" width="${fixed(width)}" height="${CONTEXT_CARD_HEIGHT}" rx="15" fill="${BLACK}"/>`,
-    `<rect x="${fixed(x)}" y="${fixed(y)}" width="${fixed(width)}" height="${CONTEXT_CARD_HEIGHT}" rx="15" fill="${THEME.passportStrip}" stroke="${BLACK}" stroke-width="2.5"/>`,
-    `<rect x="${fixed(x + 6)}" y="${fixed(y + 13)}" width="6" height="28" rx="3" fill="${accent}"/>`,
-    contextFieldIconSvg(x + 36, y + CONTEXT_CARD_HEIGHT / 2, kind),
-    `<line x1="${fixed(dividerX)}" y1="${fixed(y + 8)}" x2="${fixed(dividerX)}" y2="${fixed(y + CONTEXT_CARD_HEIGHT - 8)}" stroke="${BLACK}" stroke-width="2" stroke-dasharray="3 3" opacity="0.45"/>`,
-  ];
-  const labelMaxUnits = Math.max(4, (labelWidth - 48) / CONTEXT_LABEL_FONT_SIZE);
-  const labelStartY = y + (labelLines.length > 1 ? 22 : 31);
-  labelLines.forEach((line, index) => {
-    parts.push(renderInlineTextSvg(ellipsizeText(line, labelMaxUnits, '…'), x + 84, labelStartY + index * 16, {
+    `<rect x="${fixed(x + 3)}" y="${fixed(y + 3)}" width="${fixed(width)}" height="${cardHeight}" rx="15" fill="${BLACK}"/>`,
+    `<rect x="${fixed(x)}" y="${fixed(y)}" width="${fixed(width)}" height="${cardHeight}" rx="15" fill="${THEME.passportStrip}" stroke="${BLACK}" stroke-width="2.5"/>`,
+    `<rect x="${fixed(x + 8)}" y="${fixed(y + 10)}" width="6" height="${cardHeight - 20}" rx="3" fill="${accent}"/>`,
+    `<rect class="context-field-legend" x="${fixed(x + 20)}" y="${fixed(y - 10)}" width="${fixed(legendWidth)}" height="22" fill="${THEME.headerFill}"/>`,
+    contextFieldIconSvg(x + 34, y + 1, kind),
+    renderInlineTextSvg(label, x + 54, y + 5, {
       fontSize: CONTEXT_LABEL_FONT_SIZE,
       fontWeight: 900,
-      fill: BLACK,
-      anchor: 'middle',
-      className: `context-field-label ${index ? 'context-field-label-secondary' : 'context-field-label-primary'}`,
-    }));
-  });
-  const contentStartY = y + CONTEXT_CARD_HEIGHT / 2 + CONTEXT_TEXT_BASELINE_CENTER_OFFSET
+      fill: '#68645F',
+      className: 'context-field-label',
+    }),
+  ];
+  const contentStartY = y + cardHeight / 2 + CONTEXT_TEXT_BASELINE_CENTER_OFFSET
     - Math.max(0, lines.length - 1) * CONTEXT_TEXT_LINE_HEIGHT / 2;
   lines.forEach((line, index) => {
     parts.push(renderInlineTextSvg(line, contentX, contentStartY + index * CONTEXT_TEXT_LINE_HEIGHT, {
@@ -976,41 +925,33 @@ export function renderContextCard(x, y, width, block) {
 }
 
 export function renderContextCards(x, y, width, blocks) {
-  return blocks.slice(0, 2).map((block, index) => renderContextCard(
-    x,
-    y + index * (CONTEXT_CARD_HEIGHT + CONTEXT_CARD_GAP),
-    width,
-    block,
-  )).join('\n');
-}
-
-export function modeEmblemSvg(cx, cy, mode) {
-  if (mode === 'world') {
-    return [
-      '<g class="mode-emblem mode-emblem-world">',
-      `<circle class="mode-emblem-shadow mode-emblem-world-shadow" cx="${fixed(cx + 2)}" cy="${fixed(cy + 2.5)}" r="17" fill="${BLACK}"/>`,
-      `<ellipse class="mode-emblem-orbit mode-emblem-orbit-back" cx="${fixed(cx)}" cy="${fixed(cy)}" rx="25" ry="8" fill="none" stroke="url(#modeOrbitGradient)" stroke-width="5" transform="rotate(-13 ${fixed(cx)} ${fixed(cy)})"/>`,
-      '<g class="mode-emblem-globe">',
-      `<circle class="mode-emblem-planet-shell" cx="${fixed(cx)}" cy="${fixed(cy)}" r="17" fill="#FFFFFF" stroke="${BLACK}" stroke-width="3"/>`,
-      `<circle class="mode-emblem-planet-core" cx="${fixed(cx)}" cy="${fixed(cy)}" r="11" fill="${THEME.worldBadge}" stroke="${BLACK}" stroke-width="2.5"/>`,
-      '</g>',
-      `<path class="mode-emblem-orbit mode-emblem-orbit-front" d="M${fixed(cx - 25)} ${fixed(cy)} A25 8 0 0 0 ${fixed(cx + 25)} ${fixed(cy)}" fill="none" stroke="url(#modeOrbitGradient)" stroke-width="5" transform="rotate(-13 ${fixed(cx)} ${fixed(cy)})"/>`,
-      '</g>',
-    ].join('\n');
+  const ordered = orderedContextBlocks(blocks);
+  const profileBlocks = ordered.filter((block) => ['agent', 'human'].includes(contextCardRole(block)));
+  const detailBlocks = ordered.filter((block) => !['agent', 'human'].includes(contextCardRole(block)));
+  const parts = [];
+  let nextY = y;
+  if (profileBlocks.length) {
+    const cardWidth = (width - PROFILE_CARD_GAP) / 2;
+    const byRole = new Map(profileBlocks.map((block) => [contextCardRole(block), block]));
+    ['agent', 'human'].forEach((role, index) => {
+      const block = byRole.get(role);
+      if (block) {
+        parts.push(renderContextCard(
+          x + index * (cardWidth + PROFILE_CARD_GAP),
+          y,
+          cardWidth,
+          block,
+          true,
+        ));
+      }
+    });
+    nextY += PROFILE_CARD_HEIGHT + (detailBlocks.length ? PROFILE_TO_CONTEXT_GAP : 0);
   }
-  if (mode === 'direct') {
-    return [
-      `<g class="mode-emblem mode-emblem-direct" transform="translate(${fixed(cx - 32)} ${fixed(cy - 26)})">`,
-      '<g class="mode-emblem-shadow mode-emblem-direct-shadow">',
-      `<path class="mode-emblem-direct-shadow-back" d="M8 15.7883L8.5 14.5L36 15.7883V38.5H23L15 46.5V38.5H8V15.7883Z" fill="${BLACK}"/>`,
-      `<path class="mode-emblem-direct-shadow-front" d="M32 23H43.5L59.5 23.5L60 25V44.8772H52V52L44 44.8772H35L32 42V23Z" fill="${BLACK}"/>`,
-      '</g>',
-      `<path class="mode-emblem-chat-bubble mode-emblem-chat-bubble-back" d="M10 15H38V34H25L17 42V34H10V15Z" fill="#FFFFFF" stroke="${BLACK}" stroke-width="3" stroke-linejoin="round"/>`,
-      `<path class="mode-emblem-chat-bubble mode-emblem-chat-bubble-front" d="M33 24H58V41H50V48L42 41H33V24Z" fill="${THEME.directBadge}" stroke="${BLACK}" stroke-width="3" stroke-linejoin="round"/>`,
-      '</g>',
-    ].join('\n');
+  for (const block of detailBlocks) {
+    parts.push(renderContextCard(x, nextY, width, block));
+    nextY += CONTEXT_CARD_HEIGHT + CONTEXT_CARD_GAP;
   }
-  return decorativeStarSvg(cx, cy, 17, '#FFFFFF', 'url(#headerAccent)');
+  return parts.join('\n');
 }
 
 export function renderFullHeader(page) {
@@ -1030,12 +971,11 @@ export function renderFullHeader(page) {
   const secondaryRight = data.countLabel ? countX - 10 : pageX - 10;
   const secondaryWidth = Math.max(0, secondaryRight - secondaryX);
   const topicCenterX = x + width / 2;
-  const emblemCenterX = x + width - 47;
-  const topicSafeRight = emblemCenterX - HEADER_TOPIC_EMBLEM_HALF_WIDTH - HEADER_TOPIC_EMBLEM_GAP;
-  const topicHalfWidth = Math.min(topicCenterX - (x + 24), topicSafeRight - topicCenterX);
-  const topicMaxUnits = Math.max(8, Math.min(HEADER_TOPIC_MAX_UNITS, topicHalfWidth * 2 / TITLE_FONT_SIZE));
-  const lines = topicLines(data.topic, topicMaxUnits);
-  const topicY = y + (lines.length > 1 ? 71 : 84);
+  const topicMaxUnits = Math.max(
+    8,
+    Math.min(HEADER_TOPIC_MAX_UNITS, (width - 48) / TITLE_FONT_SIZE / 0.88),
+  );
+  const topic = ellipsizeTopicText(data.topic, topicMaxUnits);
   const parts = [
     '<g class="conversation-passport conversation-passport-full">',
     `<rect x="${x + 11}" y="${y + 7}" width="${width + 2}" height="${height + 10}" rx="24" fill="${BLACK}"/>`,
@@ -1050,21 +990,23 @@ export function renderFullHeader(page) {
     parts.push(smallBadgeSvg(countX, y + 15, countWidth, data.countLabel, '#FFFFFF', 'message-count-badge', data.countLabel));
   }
   parts.push(smallBadgeSvg(pageX, y + 15, pageWidth, currentPageLabel, '#F1E5FF', 'page-badge'));
-  lines.forEach((line, index) => {
-    parts.push(renderInlineTextSvg(line, topicCenterX, topicY + index * HEADER_TOPIC_LINE_HEIGHT, {
-      fontSize: TITLE_FONT_SIZE,
-      fontWeight: 900,
-      fill: BLACK,
-      anchor: 'middle',
-      className: 'conversation-topic',
-    }));
-  });
-  parts.push(
-    modeEmblemSvg(x + width - 47, y + 82, data.mode),
-    identityRouteSvg(x + 18, y + 104, width - 36, data.peerIdentity, data.localIdentity, data.initiatedBy),
-  );
+  parts.push(renderInlineTextSvg(topic, topicCenterX, y + 80, {
+    fontSize: TITLE_FONT_SIZE,
+    fontWeight: 900,
+    fill: BLACK,
+    anchor: 'middle',
+    className: 'conversation-topic',
+  }));
+  parts.push(identityRouteSvg(
+    x + 18,
+    y + 96,
+    width - 36,
+    data.peerIdentity,
+    data.localIdentity,
+    data.initiatedBy,
+  ));
   if (data.contextBlocks.length) {
-    parts.push(renderContextCards(x + 18, y + 156, width - 36, data.contextBlocks));
+    parts.push(renderContextCards(x + 18, y + 153, width - 36, data.contextBlocks));
   }
   parts.push('</g>');
   return parts.join('\n');
@@ -1317,4 +1259,3 @@ export function renderTranscriptPageSvg(page) {
 export const CLAWORLD_TRANSCRIPT_STYLE_NAME = 'claworld-comic-grid';
 export const headerHeight = transcriptHeaderHeight;
 export const renderIdentityRouteSvg = identityRouteSvg;
-export const renderModeEmblemSvg = modeEmblemSvg;

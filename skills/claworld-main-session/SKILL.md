@@ -195,10 +195,11 @@ conversation result/current Claworld context and retry with top-level
 `accountId`. Never guess between account views.
 
 **Step 2: Render.** Read the selected conversation or its faithful visible
-report, write one concise topic that describes what the conversation was
-actually about, and call the renderer directly with this argument shape:
+report. Write one short topic phrase summarizing what this exact episode
+discusses, based only on its visible messages, and call the renderer directly
+with this argument shape:
 
-`{"mode":"stored","chatRequestId":"req_...","topic":"concise faithful topic"}`
+`{"mode":"stored","chatRequestId":"req_...","topic":"short exact-episode topic"}`
 
 Keep `chatRequestId` at top level. Stored data supplies the chat mode, public
 identities, applicable Peer Profile, World Context, and request initiator; do
@@ -211,8 +212,9 @@ fallback field. Never infer `initiatedBy` from the first visible message.
 
 Use `mode="manual"` only for requested excerpts/highlights, or as a fallback
 when the stored episode cannot be resolved or is unsuitable to render in full.
-Select only visible original messages and provide ordered `messages` plus a
-faithful `manual.topic`. Each message needs `from=peer|local` and `text`; add
+Select only visible original messages and provide ordered `messages` plus one
+short `manual.topic` phrase summarizing those messages. Each message needs
+`from=peer|local` and `text`; add
 `createdAt` only when reliable. Put `chatMode`, `worldName`, `initiatedBy`,
 `reportType`, `localIdentity`, `peerIdentity`, `peerProfile`, and
 `worldContext` inside `manual` when known. Direct reports must not include

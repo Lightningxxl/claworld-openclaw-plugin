@@ -23,14 +23,17 @@ import {
 } from '../src/openclaw/runtime/transcript-report.js';
 import {
   boundedContextLines,
-  ellipsizeIdentityParts,
+  contextCardLabel,
+  ellipsizeTopicText,
+  fullHeaderCardHeight,
+  headerContextBlocks,
   identityLabelSvg,
   identityNameRenderWidth,
   measureTranscriptItem,
-  modeEmblemSvg,
   paginateTranscriptItems,
+  renderContextCards,
   renderInlineTextSvg,
-  topicLines,
+  topicRenderUnits,
 } from '../src/openclaw/runtime/transcript-report-comic-grid.js';
 import {
   fontCssRules,
@@ -77,6 +80,11 @@ function indexedKickoffText() {
     '### Global Profile',
     '```text',
     'structured global profile',
+    '```',
+    '',
+    '### Human Profile',
+    '```text',
+    'structured human profile',
     '```',
     '',
     '### World Membership Profile',
@@ -264,6 +272,8 @@ function structuredContextFixture({
   peerCode = 'Z99TMV',
   globalProfile = 'Profile captured at conversation start.',
   globalProfileState = 'available',
+  humanProfile = 'Human profile captured at conversation start.',
+  humanProfileState = 'available',
   worldProfile = 'World membership captured at conversation start.',
   worldProfileState = 'available',
   worldContext = 'World identity captured at conversation start.',
@@ -293,7 +303,12 @@ function structuredContextFixture({
             ? { format: 'plain_text', text: globalProfile }
             : null,
         },
-        human: { state: 'not_set', value: null },
+        human: {
+          state: humanProfileState,
+          value: humanProfileState === 'available'
+            ? { format: 'plain_text', text: humanProfile }
+            : null,
+        },
         worldAgent: {
           state: mode === 'world' ? worldProfileState : 'not_applicable',
           value: mode === 'world' && worldProfileState === 'available'
@@ -362,15 +377,27 @@ async function assertStoredRendering(workspaceRoot) {
     contextSource: 'rawKickoffText',
     contextBlocks: [
       {
-        kind: 'peerWorldMembershipProfile',
-        label: 'Peer · World',
-        text: 'structured world profile',
+        kind: 'peerGlobalProfile',
+        label: 'Agent Profile',
+        text: 'structured global profile',
+        source: 'rawKickoffText',
+      },
+      {
+        kind: 'peerHumanProfile',
+        label: 'Human Profile',
+        text: 'structured human profile',
         source: 'rawKickoffText',
       },
       {
         kind: 'worldContext',
         label: 'World Context',
         text: 'A focused archive world for organizing public evidence.',
+        source: 'rawKickoffText',
+      },
+      {
+        kind: 'peerWorldMembershipProfile',
+        label: 'World Membership Profile',
+        text: 'structured world profile',
         source: 'rawKickoffText',
       },
     ],
@@ -392,8 +419,10 @@ async function assertStoredRendering(workspaceRoot) {
     report.artifacts.svgPages.map((page) => fs.readFile(page.path, 'utf8')),
   )).join('\n');
   assert.match(visibleSvg, /conversation-passport conversation-passport-full/u);
-  assert.match(visibleSvg, /WORLD · 1:1/u);
+  assert.match(visibleSvg, /WORLD CHAT/u);
   assert.match(visibleSvg, /relation-peer/u);
+  assert.match(visibleSvg, /context-peerglobalprofile/u);
+  assert.match(visibleSvg, /context-peerhumanprofile/u);
   assert.match(visibleSvg, /context-peerworldmembershipprofile/u);
   assert.match(visibleSvg, /context-worldcontext/u);
   for (const internalValue of ['req-new', 'pair:a::b:world:wld-private-01', 'agent-local']) {
@@ -500,7 +529,7 @@ async function assertManualPagination(workspaceRoot) {
   const pages = await readSvgPages(report);
   assert.equal(pages[0].includes('conversation-passport conversation-passport-full'), true);
   assert.equal(pages.slice(1).every((svg) => svg.includes('conversation-passport conversation-passport-compact')), true);
-  assert.equal(pages.every((svg) => svg.includes('WORLD · 1:1')), true);
+  assert.equal(pages.every((svg) => svg.includes('WORLD CHAT')), true);
   assert.equal(pages.every((svg) => svg.includes('relation-peer')), true);
   assert.equal(pages.every((svg) => svg.includes('Peer Agent') && svg.includes('#PEER01')), true);
   assert.equal(pages.every((svg) => svg.includes('Local Agent') && svg.includes('#LOCAL1')), true);
@@ -920,6 +949,10 @@ async function assertLegacyAndStructuredHeaderParsing(workspaceRoot) {
     '```text',
     'Direct global profile from the trusted kickoff.',
     '```',
+    '### Human Profile',
+    '```text',
+    'Direct human profile from the trusted kickoff.',
+    '```',
   ].join('\n');
   await recordClaworldTranscriptEpisode(workspaceRoot, {
     chatRequestId: 'req-direct-header',
@@ -942,7 +975,11 @@ async function assertLegacyAndStructuredHeaderParsing(workspaceRoot) {
   assert.equal(directSpec.scene.header.chatMode, 'direct');
   assert.equal(directSpec.scene.header.contextText, 'Direct global profile from the trusted kickoff.');
   assert.equal(directSpec.scene.header.contextSource, 'rawKickoffText');
-  assert.deepEqual(directSpec.scene.header.contextBlocks.map((block) => block.kind), ['peerGlobalProfile']);
+  assert.deepEqual(
+    directSpec.scene.header.contextBlocks.map((block) => block.kind),
+    ['peerGlobalProfile', 'peerHumanProfile'],
+  );
+  assert.equal(directSpec.scene.header.contextBlocks[1].text, 'Direct human profile from the trusted kickoff.');
   assert.equal(directSpec.scene.header.worldName, '');
 
   const adversarialFence = [
@@ -1026,6 +1063,10 @@ async function assertLegacyAndStructuredHeaderParsing(workspaceRoot) {
     '```text',
     'Trusted global profile retained as metadata.',
     '```',
+    '### Human Profile',
+    '```text',
+    'Trusted human profile retained as metadata.',
+    '```',
     '### World Membership Profile',
     '```text',
     'Trusted raw kickoff membership.',
@@ -1061,8 +1102,13 @@ async function assertLegacyAndStructuredHeaderParsing(workspaceRoot) {
   assert.equal(prioritySpec.scene.header.peerIdentity, 'Moza#Z99TMV');
   assert.equal(prioritySpec.scene.header.contextText, 'Trusted raw kickoff membership.');
   assert.equal(prioritySpec.scene.header.contextSource, 'rawKickoffText');
-  assert.equal(prioritySpec.scene.header.contextBlocks[1].text, 'Trusted raw kickoff world description.');
-  assert.equal(prioritySpec.scene.header.contextBlocks[1].source, 'rawKickoffText');
+  assert.deepEqual(
+    prioritySpec.scene.header.contextBlocks.map((block) => block.kind),
+    ['peerGlobalProfile', 'peerHumanProfile', 'worldContext', 'peerWorldMembershipProfile'],
+  );
+  assert.equal(prioritySpec.scene.header.contextBlocks[1].text, 'Trusted human profile retained as metadata.');
+  assert.equal(prioritySpec.scene.header.contextBlocks[2].text, 'Trusted raw kickoff world description.');
+  assert.equal(prioritySpec.scene.header.contextBlocks[2].source, 'rawKickoffText');
   assert.equal(JSON.stringify(prioritySpec).includes('Spoofed Peer'), false);
   assert.equal(JSON.stringify(prioritySpec).includes('Lower-priority'), false);
   assert.equal((await readSvgPages(priorityReport)).join('\n').includes('Spoofed Peer'), false);
@@ -1075,6 +1121,7 @@ async function assertLegacyAndStructuredHeaderParsing(workspaceRoot) {
     initiatedBy: 'local',
     localName: 'Isolde',
     globalProfile: 'Structured global profile.',
+    humanProfile: 'Structured human profile.',
     worldProfile: 'Structured world membership.',
     worldContext: 'Structured world context.',
   });
@@ -1106,8 +1153,13 @@ async function assertLegacyAndStructuredHeaderParsing(workspaceRoot) {
   assert.equal(structuredSpec.scene.header.initiatedBy, 'local');
   assert.equal(structuredSpec.scene.header.contextText, 'Structured world membership.');
   assert.equal(structuredSpec.scene.header.contextSource, 'structuredV1');
-  assert.equal(structuredSpec.scene.header.contextBlocks[1].text, 'Structured world context.');
-  assert.equal(structuredSpec.scene.header.contextBlocks[1].source, 'structuredV1');
+  assert.deepEqual(
+    structuredSpec.scene.header.contextBlocks.map((block) => block.kind),
+    ['peerGlobalProfile', 'peerHumanProfile', 'worldContext', 'peerWorldMembershipProfile'],
+  );
+  assert.equal(structuredSpec.scene.header.contextBlocks[1].text, 'Structured human profile.');
+  assert.equal(structuredSpec.scene.header.contextBlocks[2].text, 'Structured world context.');
+  assert.equal(structuredSpec.scene.header.contextBlocks[2].source, 'structuredV1');
   assert.equal(structuredSpec.scene.peerProfileSource, 'structuredV1');
   assert.equal(
     (await readSessionIndex(workspaceRoot)).conversationEpisodes['req-structured-v1'].requestDirection,
@@ -1320,7 +1372,10 @@ async function assertStructuredContextTrustBoundaries(workspaceRoot) {
     },
   }));
   assert.equal(hiddenWorldSpec.scene.header.contextText, '');
-  assert.deepEqual(hiddenWorldSpec.scene.header.contextBlocks, []);
+  assert.deepEqual(
+    hiddenWorldSpec.scene.header.contextBlocks.map((block) => block.kind),
+    ['peerGlobalProfile', 'peerHumanProfile'],
+  );
   assert.equal(JSON.stringify(hiddenWorldSpec).includes('SECRET WORLD'), false);
 
   const incompleteRequestId = 'req-incomplete-structured-contract';
@@ -1836,11 +1891,11 @@ async function assertManualContractAndVisualHelpers(workspaceRoot) {
   assert.equal(clusters.join(''), 'A👍🏽👨‍👩‍👧‍👦🏳️‍🌈🇨🇳B');
 
   const longTopic = '这是一个故意很长的中英混合主题 Conversation Passport topic that must fit two lines without breaking emoji 👍🏽';
-  const visibleTopicLines = topicLines(longTopic, 18);
-  assert.equal(visibleTopicLines.length, 2);
-  assert.ok(visibleTopicLines[1].endsWith('…'));
+  const visibleTopic = ellipsizeTopicText(longTopic, 18);
+  assert.ok(visibleTopic.endsWith('…'));
+  assert.ok(topicRenderUnits(visibleTopic) <= 18);
   assert.equal(
-    [...visibleTopicLines.join('')].some((character) => (
+    [...visibleTopic].some((character) => (
       character.length === 1
       && character.charCodeAt(0) >= 0xd800
       && character.charCodeAt(0) <= 0xdfff
@@ -1849,14 +1904,6 @@ async function assertManualContractAndVisualHelpers(workspaceRoot) {
     'topic ellipsis must not leave a lone surrogate',
   );
 
-  const [shortName, preservedCode] = ellipsizeIdentityParts(
-    'An extraordinarily long public identity name#Z99TMV',
-    180,
-    26,
-    19,
-  );
-  assert.ok(shortName.endsWith('…'));
-  assert.equal(preservedCode, '#Z99TMV');
   const identitySvg = identityLabelSvg(
     0,
     0,
@@ -1870,6 +1917,7 @@ async function assertManualContractAndVisualHelpers(workspaceRoot) {
   assert.match(identitySvg, /identity-name/u);
   assert.match(identitySvg, /identity-code/u);
   assert.match(identitySvg, /#Z99TMV/u);
+  assert.match(identitySvg, /…/u);
   const fullCjkIdentitySvg = identityLabelSvg(
     0,
     0,
@@ -1893,22 +1941,37 @@ async function assertManualContractAndVisualHelpers(workspaceRoot) {
   assert.match(fullLatinIdentitySvg, />Mira<\/text>/u);
   assert.equal(fullLatinIdentitySvg.includes('Mi…'), false, 'a short Latin name must not be truncated');
   const circleX = Number(/<circle cx="([^"]+)"/u.exec(fullCjkIdentitySvg)?.[1]);
-  const nameEndX = Number(/identity-peer-name[^>]* x="([^"]+)"/u.exec(fullCjkIdentitySvg)?.[1]);
-  const cjkNameBounds = await rasterTextBounds('林间灯', { fontSize: 26, fontWeight: 900 });
-  assert.ok(Number.isFinite(circleX) && Number.isFinite(nameEndX));
+  const nameCenterX = Number(/identity-peer-name[^>]* x="([^"]+)"/u.exec(fullCjkIdentitySvg)?.[1]);
+  const cjkNameBounds = await rasterTextBounds('林间灯', { fontSize: 20, fontWeight: 900 });
+  assert.ok(Number.isFinite(circleX) && Number.isFinite(nameCenterX));
   assert.ok(
-    nameEndX - cjkNameBounds.width >= circleX + 6 + 1,
+    nameCenterX - cjkNameBounds.width / 2 >= circleX + 6 + 1,
     'identity status dot must not overlap the first rendered name glyph',
   );
-  const cjkEllipsisBounds = await rasterTextBounds('林…', { fontSize: 26, fontWeight: 900 });
+  const cjkEllipsisBounds = await rasterTextBounds('林…', { fontSize: 20, fontWeight: 900 });
   assert.ok(
-    identityNameRenderWidth('林…', 26) >= cjkEllipsisBounds.width - 2,
+    identityNameRenderWidth('林…', 20) >= cjkEllipsisBounds.width - 2,
     'CJK ellipsis width budgeting must contain the rendered glyphs',
   );
-  assert.match(modeEmblemSvg(50, 50, 'direct'), /mode-emblem-direct-shadow/u);
-  const worldEmblem = modeEmblemSvg(50, 50, 'world');
-  assert.match(worldEmblem, /mode-emblem-world/u);
-  assert.match(worldEmblem, /mode-emblem-orbit-front/u);
+  assert.equal(contextCardLabel('peerGlobalProfile', 'Agent Profile'), 'About this agent');
+  assert.equal(contextCardLabel('peerHumanProfile', 'Human Profile'), 'About their human');
+  assert.equal(contextCardLabel('worldContext', 'World Context'), 'About this world');
+  const contextBlocks = [
+    { kind: 'peerGlobalProfile', label: 'Agent Profile', text: 'Agent profile.' },
+    { kind: 'peerHumanProfile', label: 'Human Profile', text: 'Human profile.' },
+    { kind: 'worldContext', label: 'World Context', text: 'World setting.' },
+    { kind: 'peerWorldMembershipProfile', label: 'World Membership Profile', text: 'Role here.' },
+  ];
+  assert.equal(headerContextBlocks({ contextBlocks }).length, 4);
+  const contextCards = renderContextCards(0, 0, 586, contextBlocks);
+  assert.equal((contextCards.match(/class="passport-context-field/g) || []).length, 4);
+  for (const label of ['About this agent', 'About their human', 'About this world', 'Their role here']) {
+    assert.ok(contextCards.includes(label));
+  }
+  for (const icon of ['context-icon-agent', 'context-icon-human', 'context-icon-world', 'context-icon-role']) {
+    assert.ok(contextCards.includes(icon));
+  }
+  assert.ok(fullHeaderCardHeight(contextBlocks) > fullHeaderCardHeight(contextBlocks.slice(0, 2)));
   const contextLines = boundedContextLines(
     'A deliberately verbose public context that should be bounded to two visible lines and end with an ellipsis when it overflows the card.',
     100,
@@ -2240,7 +2303,7 @@ async function assertSafeStoredHeaderFallback(workspaceRoot) {
   for (const internalValue of ['req-fallback', 'conversation-private', 'agt_internal', 'agt_peer']) {
     assert.equal(visibleSvg.includes(internalValue), false);
   }
-  assert.match(visibleSvg, /CHAT · 1:1/u);
+  assert.match(visibleSvg, /CLAWORLD CHAT/u);
   assert.match(visibleSvg, /relation-unknown/u);
 }
 
@@ -2434,8 +2497,43 @@ async function assertFirstClassManagementReporting(workspaceRoot) {
       eventName: 'conversation_ended',
     },
     reportText: '刚和 Peer 聊完这轮。他提出了一个值得继续追的合作方向；最有意思的一句是：“下周我可以带着原型再来聊。”',
-    transcript: { mode: 'stored' },
+    transcript: {
+      mode: 'stored',
+      topic: '原型合作方向与下周验证计划',
+    },
   };
+
+  const missingTopicEventCount = events.length;
+  const missingTopic = JSON.parse((await reportTool.execute('report-stored-missing-topic', {
+    ...storedRequest,
+    source: {
+      ...storedRequest.source,
+      id: 'req-missing-topic',
+    },
+    transcript: { mode: 'stored' },
+  })).content[0].text);
+  assert.equal(missingTopic.status, 'error');
+  assert.equal(missingTopic.code, 'management_report_transcript_topic_required');
+  assert.match(missingTopic.message, /requires a topic summarizing the exact episode/u);
+  assert.equal(events.length, missingTopicEventCount);
+
+  const presentationOverride = JSON.parse((await reportTool.execute('report-stored-presentation-override', {
+    ...storedRequest,
+    source: {
+      ...storedRequest.source,
+      id: 'req-presentation-override',
+    },
+    transcript: {
+      mode: 'stored',
+      topic: '原型合作方向与下周验证计划',
+      presentation: { title: 'Agent-written decorative title' },
+    },
+  })).content[0].text);
+  assert.equal(presentationOverride.status, 'error');
+  assert.equal(presentationOverride.code, 'management_report_transcript_field_invalid');
+  assert.match(presentationOverride.message, /unsupported field\(s\): presentation/u);
+  assert.equal(events.length, missingTopicEventCount);
+
   const first = JSON.parse((await reportTool.execute('report-stored', storedRequest)).content[0].text);
   assert.equal(first.status, 'complete');
   assert.equal(first.contextSynced, true);
@@ -2444,6 +2542,15 @@ async function assertFirstClassManagementReporting(workspaceRoot) {
   assert.equal(first.deduplicated, false);
   assert.equal(first.mainSessionKey, mainSessionKey);
   assert.match(first.reportId, /^claworld-report-[a-f0-9]{24}$/u);
+  const firstBubbleSpec = JSON.parse(await fs.readFile(path.join(
+    workspaceRoot,
+    '.claworld',
+    'reports',
+    'transcripts',
+    'documents',
+    `${first.render.artifactId}.bubblespec.json`,
+  ), 'utf8'));
+  assert.equal(firstBubbleSpec.scene.header.topic, storedRequest.transcript.topic);
 
   const firstKinds = events.map((event) => event.kind);
   assert.deepEqual(firstKinds, [
@@ -2629,10 +2736,15 @@ async function assertSessionSkillDeliveryContracts() {
   assert.match(compactMainSkill, /Send every rendered page/u);
   assert.match(compactMainSkill, /up to 8000px per page by default/u);
   assert.match(compactMainSkill, /values from 900px through 32000px/u);
+  assert.match(compactMainSkill, /one short topic phrase summarizing what this exact episode discusses/u);
+  assert.match(compactMainSkill, /based only on its visible messages/u);
   assert.match(compactManagementSkill, /make one `claworld_report_to_human` call/u);
   assert.match(compactManagementSkill, /reads the authoritative `main\.lastActiveSessionKey`/u);
   assert.match(compactManagementSkill, /accepts no Main `sessionKey`, channel, target, account, thread, or PNG path/u);
   assert.match(compactManagementSkill, /Choose `transcript\.mode=stored` for the complete episode/u);
+  assert.match(compactManagementSkill, /short `transcript\.topic` phrase summarizing what this exact episode discusses/u);
+  assert.match(compactManagementSkill, /based only on its visible messages/u);
+  assert.match(compactManagementSkill, /transcript=\{mode: "stored", topic: <short exact-episode topic>\}/u);
   assert.match(compactManagementSkill, /Choose `transcript\.mode=manual` for an intentional set/u);
   assert.match(compactManagementSkill, /contextSynced=true/u);
   assert.match(compactManagementSkill, /retry the same `claworld_report_to_human` arguments/u);
