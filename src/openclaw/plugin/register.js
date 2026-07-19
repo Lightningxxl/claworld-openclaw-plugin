@@ -30,6 +30,7 @@ import {
   augmentConversationPayloadWithLocalTranscriptIndex,
   renderTranscriptReport,
 } from '../runtime/transcript-report.js';
+import { deliverClaworldManagementReport } from '../runtime/management-report.js';
 import { setClaworldRuntime } from './runtime.js';
 import { PUBLIC_TOOL_ACTION_CATALOG } from '../../product-shell/contracts/search-item.js';
 import {
@@ -61,6 +62,13 @@ import {
   stringParam,
   withToolErrorBoundary,
 } from './register-tooling.js';
+
+function isManagementToolContext(toolContext = {}) {
+  const sessionKey = normalizeText(toolContext?.sessionKey, '');
+  return /^management:[^:]+/iu.test(sessionKey)
+    || /^agent:[^:]+:management:[^:]+/iu.test(sessionKey)
+    || /^agent:[^:]+:claworld:(?:orchestration|operator|management)(?::|$)/iu.test(sessionKey);
+}
 
 function resolveShareCardToolResult(result) {
   if (!Array.isArray(result?.content)) return null;
@@ -675,6 +683,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
   const manageWorldsTool = 'claworld_manage_worlds';
   const manageConversationsTool = 'claworld_manage_conversations';
   const renderTranscriptTool = 'claworld_render_transcript_report';
+  const reportToHumanTool = 'claworld_report_to_human';
   const accountTool = 'claworld_manage_account';
   const publicProfileTool = 'claworld_get_public_profile';
 
@@ -1375,7 +1384,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
         usageNotes: [
           'action=request starts a direct or world-scoped chat request.',
           'Make one action=request call for each human instruction. After a recoverable transport error, inspect list_related or get_state for the resolved peer. A matching localTranscriptEpisodes entry first or last seen in the current request window proves creation; reused chats[].createdAt and cumulative turnCount are thread-level fields.',
-          'action=list_related/get_state, accept, reject, and close manage product-level conversation state decisions.',
+          'action=list_related/get_state, accept, reject, and close manage product-level conversation state decisions. An exact get_state chatRequestId also returns localTranscriptEpisode.messages with the ordered visible peer/local episode text for Management reporting.',
           'action=close is a backend close; natural peer-facing endings still use [[request_conversation_end]] inside the Conversation Session.',
           'Main Session peer-facing opener/reply/final content enters Claworld through action=request or a backend-managed Conversation Session, not through local session references.',
           'Do not use this tool for live conversation turns.',
@@ -1511,7 +1520,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           'This tool only writes local artifacts and returns absolute paths. It never sends a channel message.',
           'After rendering, send every artifacts.pngPages[].path value in page order with OpenClaw message(action=send, media=..., forceDocument=true). Include forceDocument=true on every channel so transcript PNGs use document/file delivery.',
           'Treat the transcript as delivered only after every rendered PNG page has been sent successfully.',
-          'Management Session should hand off report text with sessions_send first, then send every PNG path to the Main Session deliveryContext with message(action=send, media=..., forceDocument=true).',
+          'This renderer is available to Main Session for a human-requested transcript export. Management Session receives only claworld_report_to_human, which owns automatic report rendering and delivery.',
         ],
       }),
       parameters: objectParam({
@@ -1592,6 +1601,116 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           args: params,
         });
         return buildToolResult({ ...report, tool: renderTranscriptTool });
+      },
+    },
+    {
+      name: reportToHumanTool,
+      label: 'Claworld Report To Human',
+      description: 'Complete one human-facing Management report in one call. Provide a stable source identity and the final human-readable report text. Conversation-ended reports also provide a stored episode or intentional manual excerpt; other notifications deliver text only. The plugin resolves the authoritative Main Session and human route, records the exact report in Main context, then delivers the text followed by any transcript pages with ordered receipts and idempotent retry.',
+      metadata: buildToolMetadata({
+        category: 'management',
+        usageNotes: [
+          'Use this once for every human-facing Management update: conversation result, world invitation, world broadcast, subscription hit, or proactive progress report.',
+          'Use source.kind=conversation with source.id equal to the exact chatRequestId and include transcript. For a backend notification use source.kind=notification and omit transcript. Use world.broadcast_published:<broadcastId> for broadcasts, world.invite_received:<invitationId-or-membershipId> for invitations, and the exact notification or batch id for other events.',
+          'A normal Management assistant reply is internal and does not reach the human. This tool is the only completed human delivery path for a Management report.',
+          'For conversation transcript, stored renders the complete exact episode and manual renders an intentional excerpt or highlights.',
+          'The plugin selects the current human-facing Main Session from .claworld/sessions/index.json and its OpenClaw session deliveryContext; do not supply a target session or channel route.',
+          'A complete result means the exact report is in Main context, the text was delivered, and every optional transcript page was delivered in page order.',
+          'The source identity is the idempotency boundary. Retry the same source and exact arguments to resume incomplete delivery; conflicting content for the same source fails clearly.',
+        ],
+      }),
+      parameters: objectParam({
+        description: 'One complete human-facing Management report request.',
+        required: ['source', 'reportText'],
+        properties: {
+          accountId: accountIdProperty,
+          source: objectParam({
+            description: 'Stable identity of the event or work item that produced this report.',
+            required: ['kind', 'id'],
+            properties: {
+              kind: stringParam({
+                description: 'conversation for a completed chat, notification for another backend notification, or proactive for a durable Management work item.',
+                enumValues: ['conversation', 'notification', 'proactive'],
+              }),
+              id: stringParam({
+                description: 'Exact chatRequestId, stable notification event identity, or durable proactive work id. For broadcasts use world.broadcast_published:<broadcastId>; for invitations use world.invite_received:<invitationId-or-membershipId>. This is the idempotency boundary.',
+                minLength: 1,
+              }),
+              eventName: stringParam({
+                description: 'Optional event name such as conversation_ended, world.invite_received, or world.broadcast_published.',
+                minLength: 1,
+              }),
+              chatRequestId: stringParam({
+                description: 'Exact episode id when kind=conversation. It defaults to source.id and is used for stored transcript rendering.',
+                minLength: 1,
+              }),
+            },
+          }),
+          reportText: stringParam({
+            description: 'Final human-readable report. Include what happened, who or which world is involved, useful outcome, your judgment, and the next decision when relevant. Conversation reports also include at least one Golden Quote or vivid moment. Keep internal ids, local paths, routing details, and tool noise out.',
+            minLength: 1,
+          }),
+          transcript: objectParam({
+            description: 'Required for source.kind=conversation and omitted for other reports. stored renders the complete exact episode; manual renders only the supplied selected excerpt.',
+            required: ['mode'],
+            properties: {
+              mode: stringParam({
+                description: 'stored for the complete episode; manual for an intentional selected excerpt or highlights.',
+                enumValues: ['stored', 'manual'],
+              }),
+              presentation: objectParam({
+                description: 'Optional public header overrides for stored mode. Omit to use indexed public identity and world context.',
+                properties: {
+                  title: stringParam({ description: 'Optional human-readable title.', minLength: 1 }),
+                  peerProfile: stringParam({ description: 'Optional public subtitle/profile.', minLength: 1 }),
+                  localLabel: stringParam({ description: 'Optional local/right speaker label.', minLength: 1 }),
+                  peerLabel: stringParam({ description: 'Optional peer/left speaker label.', minLength: 1 }),
+                },
+              }),
+              manual: objectParam({
+                description: 'Exact ordered visible rows and public header for manual mode.',
+                required: ['messages', 'title', 'peerProfile', 'localLabel', 'peerLabel'],
+                properties: {
+                  messages: arrayParam({
+                    description: 'Selected ordered visible transcript rows.',
+                    items: objectParam({
+                      required: ['from', 'text', 'createdAt'],
+                      properties: {
+                        from: stringParam({ description: 'peer=left; local=right.', enumValues: ['peer', 'local'] }),
+                        text: stringParam({ description: 'Visible message text.', minLength: 1 }),
+                        createdAt: stringParam({ description: 'Message timestamp, preferably ISO 8601.', minLength: 1 }),
+                      },
+                    }),
+                  }),
+                  title: stringParam({ description: 'Human-readable report title.', minLength: 1 }),
+                  peerProfile: stringParam({ description: 'Public subtitle/profile.', minLength: 1 }),
+                  localLabel: stringParam({ description: 'Local/right speaker label.', minLength: 1 }),
+                  peerLabel: stringParam({ description: 'Peer/left speaker label.', minLength: 1 }),
+                },
+              }),
+              maxPageHeight: integerParam({
+                description: 'Maximum adaptive page height. Defaults to 8000; accepted values range from 900 through 32000 and overflow continues on additional pages.',
+                minimum: 900,
+                maximum: MAX_PAGE_HEIGHT,
+                examples: [8000, 12000],
+              }),
+            },
+          }),
+        },
+      }),
+      async execute(_toolCallId, params = {}, toolContext = {}) {
+        const { cfg, workspaceRoot, agentId } = await resolveTranscriptWorkspace(api, params, toolContext);
+        if (!workspaceRoot) {
+          throw new Error('unable to resolve the active OpenClaw workspace for Management reporting');
+        }
+        const result = await deliverClaworldManagementReport({
+          api,
+          cfg,
+          workspaceRoot,
+          localAgentId: agentId,
+          request: params,
+        });
+        return buildToolResult({ ...result, tool: reportToHumanTool });
       },
     },
   ];
@@ -2148,7 +2267,7 @@ function buildRegisteredTools(api, plugin) {
           'localSessionKey is a local runtime reference only, not a transport address for sending a user message directly to the peer.',
           'Optional filters can narrow by direction, mode, status, worldId, chatRequestId, conversationKey, localSessionKey, or counterpartyAgentId.',
           'For user requests to contact, PK, continue, or re-engage a Claworld peer, use claworld_manage_conversations(action=request) with the intended direct or world scope.',
-          'Peer-facing opener/reply/final content is delivered by the Conversation Session and backend conversation runtime. Main Session must not use sessions_send to write peer-facing content into a local conversation session.',
+          'Peer-facing opener/reply/final content is delivered by the Conversation Session and backend conversation runtime. Start and inspect that flow through the Claworld conversation tools.',
           'Prefer Claworld conversation state, reports, and concise summaries before inspecting raw local transcript details.',
           'Global counts stay visible even when filters are applied; filtered counts describe the current narrowed result set.',
           'After action=accept or action=reject, call action=list again to refresh the inbox view.',
@@ -2653,7 +2772,7 @@ export function registerClaworldPluginFull(api, plugin) {
       }
       if (
         terminalTool.name === 'claworld_manage_conversations'
-        || terminalTool.name === 'claworld_render_transcript_report'
+        || terminalTool.name === 'claworld_report_to_human'
       ) {
         api.registerTool(
           (toolContext) => ({
@@ -2663,6 +2782,22 @@ export function registerClaworldPluginFull(api, plugin) {
               async (...args) => await terminalTool.execute(...args, toolContext),
             ),
           }),
+          { name: terminalTool.name },
+        );
+        continue;
+      }
+      if (terminalTool.name === 'claworld_render_transcript_report') {
+        api.registerTool(
+          (toolContext) => {
+            if (isManagementToolContext(toolContext)) return null;
+            return {
+              ...terminalTool,
+              execute: withToolErrorBoundary(
+                terminalTool.name,
+                async (...args) => await terminalTool.execute(...args, toolContext),
+              ),
+            };
+          },
           { name: terminalTool.name },
         );
         continue;

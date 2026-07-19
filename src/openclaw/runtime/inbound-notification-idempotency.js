@@ -80,6 +80,31 @@ export function resolveInboundNotificationIdempotencyKey({
   if (normalizeText(eventType, 'delivery') === 'delivery') return null;
   if (normalizeText(sessionKind, null) !== 'management') return null;
   const notification = normalizeObject(payload.notification || delivery.notification);
+  const relatedObjects = normalizeObject(notification.relatedObjects);
+  const normalizedEventName = normalizeText(
+    notification.notificationType,
+    normalizeText(
+      payload.eventName,
+      normalizeText(delivery.eventName, normalizeText(metadata.eventName, normalizeText(eventType, null))),
+    ),
+  );
+  const targetAgentId = normalizeText(
+    notification.targetAgentId,
+    normalizeText(payload.targetAgentId, normalizeText(delivery.targetAgentId, normalizeText(metadata.targetAgentId, null))),
+  );
+  const semanticId = normalizedEventName === 'world.broadcast_published'
+    ? normalizeText(relatedObjects.broadcastId, normalizeText(payload.broadcastId, null))
+    : normalizedEventName === 'world.invite_received'
+      ? normalizeText(
+        relatedObjects.invitationId,
+        normalizeText(relatedObjects.membershipId, normalizeText(payload.invitationId, normalizeText(payload.membershipId, null))),
+      )
+      : normalizedEventName === 'conversation_ended' || normalizedEventName === 'chat_request_created'
+        ? normalizeText(relatedObjects.chatRequestId, normalizeText(payload.chatRequestId, null))
+        : null;
+  if (normalizedEventName && semanticId) {
+    return [normalizedEventName, semanticId, targetAgentId].filter(Boolean).join(':');
+  }
   const candidates = [
     notification.notificationId,
     metadata.notificationId,

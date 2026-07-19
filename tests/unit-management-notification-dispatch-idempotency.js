@@ -63,7 +63,7 @@ const inbound = {
   },
 };
 
-function buildEvent(notificationId, chatRequestId) {
+function buildEvent(notificationId, chatRequestId, notificationOverrides = {}) {
   const deliveryId = `notification:${notificationId}`;
   return {
     eventType: 'notification',
@@ -80,9 +80,11 @@ function buildEvent(notificationId, chatRequestId) {
         contextText: `Conversation ended: ${chatRequestId}`,
         notification: {
           notificationId,
+          ...notificationOverrides,
           relatedObjects: {
             chatRequestId,
             conversationKey: 'pair:agt-local::agt-peer:direct',
+            ...(notificationOverrides.relatedObjects || {}),
           },
         },
       },
@@ -122,12 +124,25 @@ try {
   await bridge(second);
   assert.equal(dispatchCount, 2);
 
+  const broadcastA = buildEvent('ntf-broadcast-a', null, {
+    notificationType: 'world.broadcast_published',
+    relatedObjects: { broadcastId: 'brd-semantic-dedupe' },
+  });
+  const broadcastB = buildEvent('ntf-broadcast-b', null, {
+    notificationType: 'world.broadcast_published',
+    relatedObjects: { broadcastId: 'brd-semantic-dedupe' },
+  });
+  await bridge(broadcastA);
+  const duplicateBroadcast = await bridge(broadcastB);
+  assert.equal(duplicateBroadcast.reason, 'duplicate_management_notification');
+  assert.equal(dispatchCount, 3);
+
   shouldFail = true;
   const retryable = buildEvent('ntf-retry', 'req-retry');
   await assert.rejects(() => bridge(retryable), /temporary dispatch failure/u);
   shouldFail = false;
   await bridge(retryable);
-  assert.equal(dispatchCount, 4);
+  assert.equal(dispatchCount, 5);
 } finally {
   await fs.rm(workspaceRoot, { recursive: true, force: true });
 }

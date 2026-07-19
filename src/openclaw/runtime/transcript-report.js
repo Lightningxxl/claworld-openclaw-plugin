@@ -257,6 +257,30 @@ function episodeSummary(chatRequestId, entry) {
   });
 }
 
+function episodeVisibleMessages(entry) {
+  const deliveries = Array.isArray(entry?.deliveries) ? entry.deliveries : [];
+  return deliveries.flatMap((delivery) => {
+    if (!renderableTranscriptDelivery(delivery)) return [];
+    const classification = classifyReplyContent(text(delivery.commandText, ''));
+    if (classification.silenceReason) return [];
+    const visible = extractControlTags(redactText(stripInternalMarkup(classification.text)));
+    if (!visible.text) return [];
+    return [compactObject({
+      from: text(delivery.direction, null) === 'outbound' ? 'local' : 'peer',
+      text: visible.text,
+      createdAt: text(delivery.turnCreatedAt, text(delivery.createdAt, null)),
+      tags: visible.tags,
+    })];
+  });
+}
+
+function episodeDetail(chatRequestId, entry) {
+  return {
+    ...episodeSummary(chatRequestId, entry),
+    messages: episodeVisibleMessages(entry),
+  };
+}
+
 function localEpisodeSummaries(index) {
   return Object.entries(isObject(index.conversationEpisodes) ? index.conversationEpisodes : {})
     .filter(([, entry]) => isObject(entry))
@@ -310,6 +334,13 @@ export async function augmentConversationPayloadWithLocalTranscriptIndex({
       episodeCount: matching.length,
       chatRequestIds: matching.map((item) => item.chatRequestId).filter(Boolean),
     };
+  }
+  const exactChatRequestId = text(filters.chatRequestId, null);
+  const exactEntry = exactChatRequestId && isObject(index.conversationEpisodes?.[exactChatRequestId])
+    ? index.conversationEpisodes[exactChatRequestId]
+    : null;
+  if (exactEntry) {
+    result.localTranscriptEpisode = episodeDetail(exactChatRequestId, exactEntry);
   }
   if (Array.isArray(result.items)) {
     result.items = result.items.map((item) => {

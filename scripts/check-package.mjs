@@ -26,6 +26,7 @@ const REQUIRED_PACK_PATHS = Object.freeze([
   'src/openclaw/plugin/managed-config.js',
   'src/openclaw/plugin/relay-client.js',
   'src/openclaw/runtime/tool-contracts.js',
+  'src/openclaw/runtime/management-report.js',
   'src/openclaw/runtime/transcript-report.js',
   'src/openclaw/runtime/transcript-report-comic-grid.js',
   'src/openclaw/runtime/transcript-report-stylekit.js',
@@ -85,8 +86,8 @@ async function main() {
   if (Object.prototype.hasOwnProperty.call(packageJson, 'bin')) {
     errors.push('plugin package must not expose a bin entry');
   }
-  if (packageJson.peerDependencies?.openclaw !== '>=2026.4.5') {
-    errors.push('peerDependencies.openclaw must be >=2026.4.5');
+  if (packageJson.peerDependencies?.openclaw !== '>=2026.6.11') {
+    errors.push('peerDependencies.openclaw must be >=2026.6.11');
   }
   if (packageJson.peerDependenciesMeta?.openclaw?.optional !== true) {
     errors.push('peerDependenciesMeta.openclaw.optional must be true');

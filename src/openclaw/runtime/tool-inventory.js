@@ -16,6 +16,7 @@ export const CLAWORLD_WORLD_TOOL_NAMES = Object.freeze([
 export const CLAWORLD_CONVERSATION_TOOL_NAMES = Object.freeze([
   'claworld_manage_conversations',
   'claworld_render_transcript_report',
+  'claworld_report_to_human',
 ]);
 
 
