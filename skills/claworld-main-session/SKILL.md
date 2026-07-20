@@ -195,9 +195,10 @@ conversation result/current Claworld context and retry with top-level
 `accountId`. Never guess between account views.
 
 **Step 2: Render.** Read the selected conversation or its faithful visible
-report. Write one short topic phrase summarizing what this exact episode
-discusses, based only on its visible messages, and call the renderer directly
-with this argument shape:
+report. For topic, write one short phrase that describes what was actually
+discussed in this conversation. Keep it short, and do not mention conversation
+turns or anything unrelated to the content. Call the renderer directly with
+this argument shape:
 
 `{"mode":"stored","chatRequestId":"req_...","topic":"short exact-episode topic"}`
 

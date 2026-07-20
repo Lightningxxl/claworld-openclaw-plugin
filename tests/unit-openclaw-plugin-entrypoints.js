@@ -6,6 +6,7 @@ function createRegistrationApi(registrationMode = 'full') {
   const channels = [];
   const httpRoutes = [];
   const tools = [];
+  const toolFactories = new Map();
 
   return {
     api: {
@@ -24,12 +25,22 @@ function createRegistrationApi(registrationMode = 'full') {
         httpRoutes.push(route);
       },
       registerTool(tool, options) {
-        tools.push({ tool: typeof tool === 'function' ? tool({}) : tool, options });
+        if (typeof tool === 'function') {
+          toolFactories.set(options.name, tool);
+          const toolContext = options.name === 'claworld_report_to_human'
+            ? { sessionKey: 'agent:main:management:agent-local' }
+            : {};
+          const resolved = tool(toolContext);
+          if (resolved) tools.push({ tool: resolved, options });
+          return;
+        }
+        tools.push({ tool, options });
       },
     },
     channels,
     httpRoutes,
     tools,
+    toolFactories,
   };
 }
 
@@ -137,7 +148,7 @@ async function main() {
   assert.deepEqual(transcriptProperties.initiatedBy.enum, ['local', 'peer']);
   assert.equal(transcriptProperties.topic.minLength, 1);
   assert.match(transcriptProperties.topic.description, /Required for every new stored call/u);
-  assert.match(transcriptProperties.topic.description, /exact episode discusses.*visible messages/u);
+  assert.match(transcriptProperties.topic.description, /what was actually discussed in this conversation/u);
   assert.match(transcriptProperties.title.description, /Compatibility alias/u);
   assert.match(transcriptProperties.accountId.description, /more than one local account/u);
   assert.equal(Object.prototype.hasOwnProperty.call(transcriptProperties, 'reportType'), false);
@@ -176,13 +187,28 @@ async function main() {
   assert.ok(renderTranscript.description.includes('8000px default maximum'));
   assert.ok(renderTranscript.description.includes('top-level mode=stored, chatRequestId'));
   assert.ok(renderTranscript.description.includes('without requiring a prior state call'));
-  assert.ok(renderTranscript.metadata.usageNotes.some((note) => note.includes('one short topic phrase')));
+  assert.ok(renderTranscript.metadata.usageNotes.some((note) => note.includes('what was actually discussed')));
   assert.ok(renderTranscript.metadata.usageNotes.some((note) => note.includes('never infer initiatedBy')));
   assert.ok(renderTranscript.metadata.usageNotes.some((note) => note.includes('send every artifacts.pngPages[].path')));
   assert.ok(renderTranscript.metadata.usageNotes.some((note) => note.includes('forceDocument=true')));
 
   const reportToHuman = toolByName.get('claworld_report_to_human');
   assert.ok(reportToHuman, 'expected first-class Management report tool to register');
+  const reportToHumanFactory = full.toolFactories.get('claworld_report_to_human');
+  assert.ok(reportToHumanFactory, 'expected Management report tool factory to register');
+  assert.equal(reportToHumanFactory({}), null);
+  assert.equal(
+    reportToHumanFactory({ sessionKey: 'agent:main:feishu:direct:user-owner' }),
+    null,
+  );
+  assert.equal(
+    reportToHumanFactory({ sessionKey: 'agent:main:conversation:pair:local::peer:direct' }),
+    null,
+  );
+  assert.equal(
+    reportToHumanFactory({ sessionKey: 'agent:main:management:agent-local' })?.name,
+    'claworld_report_to_human',
+  );
   assert.deepEqual(reportToHuman.parameters.required, ['source', 'reportText']);
   assert.ok(reportToHuman.parameters.properties.accountId, 'expected optional standard account selector');
   assert.deepEqual(reportToHuman.parameters.properties.source.properties.kind.enum, ['conversation', 'notification', 'proactive']);
@@ -190,7 +216,7 @@ async function main() {
   assert.equal(reportToHuman.parameters.properties.transcript.properties.topic.minLength, 1);
   assert.match(
     reportToHuman.parameters.properties.transcript.properties.topic.description,
-    /Required for stored mode.*exact episode.*visible messages/u,
+    /Required for stored mode.*what was actually discussed in this conversation/u,
   );
   assert.equal(
     Object.prototype.hasOwnProperty.call(reportToHuman.parameters.properties.transcript.properties, 'presentation'),
@@ -201,7 +227,7 @@ async function main() {
   assert.ok(reportToHuman.description.includes('one call'));
   assert.ok(reportToHuman.description.includes('other notifications deliver text only'));
   assert.ok(reportToHuman.metadata.usageNotes.some((note) => note.includes('normal Management assistant reply is internal')));
-  assert.ok(reportToHuman.metadata.usageNotes.some((note) => note.includes('one short topic phrase')));
+  assert.ok(reportToHuman.metadata.usageNotes.some((note) => note.includes('what was actually discussed')));
   assert.ok(reportToHuman.metadata.usageNotes.some((note) => note.includes('do not supply a target session')));
   assert.ok(reportToHuman.metadata.usageNotes.some((note) => note.includes('idempotency boundary')));
 

@@ -39,6 +39,7 @@ export const TITLE_FONT_SIZE = 25;
 const LINE_HEIGHT = 29;
 export const HEADER_TOPIC_MAX_UNITS = 26;
 export const HEADER_COMPACT_TOPIC_MAX_UNITS = 26;
+export const HEADER_TOPIC_SIDE_PADDING = 36;
 export const CONTEXT_CARD_HEIGHT = 76;
 export const CONTEXT_CARD_GAP = 22;
 export const PROFILE_CARD_HEIGHT = 82;
@@ -971,9 +972,12 @@ export function renderFullHeader(page) {
   const secondaryRight = data.countLabel ? countX - 10 : pageX - 10;
   const secondaryWidth = Math.max(0, secondaryRight - secondaryX);
   const topicCenterX = x + width / 2;
+  const topicClipX = x + HEADER_TOPIC_SIDE_PADDING;
+  const topicClipWidth = Math.max(0, width - HEADER_TOPIC_SIDE_PADDING * 2);
+  const topicClipId = `conversation-topic-clip-${page.page}`;
   const topicMaxUnits = Math.max(
     8,
-    Math.min(HEADER_TOPIC_MAX_UNITS, (width - 48) / TITLE_FONT_SIZE / 0.88),
+    Math.min(HEADER_TOPIC_MAX_UNITS, topicClipWidth / TITLE_FONT_SIZE),
   );
   const topic = ellipsizeTopicText(data.topic, topicMaxUnits);
   const parts = [
@@ -990,13 +994,18 @@ export function renderFullHeader(page) {
     parts.push(smallBadgeSvg(countX, y + 15, countWidth, data.countLabel, '#FFFFFF', 'message-count-badge', data.countLabel));
   }
   parts.push(smallBadgeSvg(pageX, y + 15, pageWidth, currentPageLabel, '#F1E5FF', 'page-badge'));
-  parts.push(renderInlineTextSvg(topic, topicCenterX, y + 80, {
-    fontSize: TITLE_FONT_SIZE,
-    fontWeight: 900,
-    fill: BLACK,
-    anchor: 'middle',
-    className: 'conversation-topic',
-  }));
+  parts.push(
+    `<defs><clipPath id="${topicClipId}"><rect x="${fixed(topicClipX)}" y="${fixed(y + 50)}" width="${fixed(topicClipWidth)}" height="40"/></clipPath></defs>`,
+    `<g clip-path="url(#${topicClipId})">`,
+    renderInlineTextSvg(topic, topicCenterX, y + 80, {
+      fontSize: TITLE_FONT_SIZE,
+      fontWeight: 900,
+      fill: BLACK,
+      anchor: 'middle',
+      className: 'conversation-topic',
+    }),
+    '</g>',
+  );
   parts.push(identityRouteSvg(
     x + 18,
     y + 96,
@@ -1022,6 +1031,8 @@ export function renderCompactHeader(page) {
   const pageWidth = smallBadgeWidth(currentPageLabel, 48);
   const topicX = x + 18 + modeWidth + 12;
   const topicRight = x + width - 18 - pageWidth - 12;
+  const topicClipWidth = Math.max(0, topicRight - topicX);
+  const topicClipId = `conversation-topic-clip-${page.page}`;
   const topicUnits = Math.max(9, Math.min(HEADER_COMPACT_TOPIC_MAX_UNITS, (topicRight - topicX) / 18));
   const topic = ellipsizeText(data.topic, topicUnits, '…');
   return [
@@ -1030,12 +1041,15 @@ export function renderCompactHeader(page) {
     `<rect x="${x + 6}" y="${y + 5}" width="${width}" height="${HEADER_CARD_HEIGHT_COMPACT + 2}" rx="20" fill="url(#headerAccent)"/>`,
     `<rect x="${x}" y="${y}" width="${width}" height="${HEADER_CARD_HEIGHT_COMPACT}" rx="20" fill="${THEME.headerFill}" stroke="${BLACK}" stroke-width="4"/>`,
     modeBadgeSvg(x + 18, y + 12, data.mode, data.modeLabel, true),
+    `<defs><clipPath id="${topicClipId}"><rect x="${fixed(topicX)}" y="${fixed(y + 8)}" width="${fixed(topicClipWidth)}" height="38"/></clipPath></defs>`,
+    `<g clip-path="url(#${topicClipId})">`,
     renderInlineTextSvg(topic, topicX, y + 35, {
       fontSize: 18,
       fontWeight: 900,
       fill: BLACK,
       className: 'conversation-topic',
     }),
+    '</g>',
     smallBadgeSvg(x + width - 18 - pageWidth, y + 12, pageWidth, currentPageLabel, '#F1E5FF', 'page-badge'),
     identityRouteSvg(x + 18, y + 50, width - 36, data.peerIdentity, data.localIdentity, data.initiatedBy, true),
     '</g>',

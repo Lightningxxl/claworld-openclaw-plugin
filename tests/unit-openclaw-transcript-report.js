@@ -26,12 +26,15 @@ import {
   contextCardLabel,
   ellipsizeTopicText,
   fullHeaderCardHeight,
+  HEADER_TOPIC_SIDE_PADDING,
   headerContextBlocks,
   identityLabelSvg,
   identityNameRenderWidth,
   measureTranscriptItem,
   paginateTranscriptItems,
   renderContextCards,
+  renderCompactHeader,
+  renderFullHeader,
   renderInlineTextSvg,
   topicRenderUnits,
 } from '../src/openclaw/runtime/transcript-report-comic-grid.js';
@@ -1903,6 +1906,31 @@ async function assertManualContractAndVisualHelpers(workspaceRoot) {
     false,
     'topic ellipsis must not leave a lone surrogate',
   );
+  assert.equal(HEADER_TOPIC_SIDE_PADDING, 36);
+  const headerPage = {
+    page: 1,
+    pageCount: 2,
+    width: 720,
+    title: longTopic,
+    subtitle: '',
+    header: {
+      chatMode: 'direct',
+      topic: longTopic,
+      peerIdentity: 'Mira#PEER01',
+      localIdentity: 'Moza#LOCAL1',
+      initiatedBy: 'peer',
+      messageCount: 2,
+      reportType: 'full',
+    },
+    items: [],
+  };
+  const fullHeaderSvg = renderFullHeader(headerPage);
+  assert.match(fullHeaderSvg, /<clipPath id="conversation-topic-clip-1">/u);
+  assert.match(fullHeaderSvg, /clip-path="url\(#conversation-topic-clip-1\)"/u);
+  assert.ok(fullHeaderSvg.includes('…'));
+  const compactHeaderSvg = renderCompactHeader({ ...headerPage, page: 2 });
+  assert.match(compactHeaderSvg, /<clipPath id="conversation-topic-clip-2">/u);
+  assert.match(compactHeaderSvg, /clip-path="url\(#conversation-topic-clip-2\)"/u);
 
   const identitySvg = identityLabelSvg(
     0,
@@ -2488,7 +2516,16 @@ async function assertFirstClassManagementReporting(workspaceRoot) {
     },
   });
 
-  const reportTool = toolFactories.get('claworld_report_to_human')(toolContext);
+  const reportToolFactory = toolFactories.get('claworld_report_to_human');
+  assert.equal(reportToolFactory({
+    ...toolContext,
+    sessionKey: 'agent:main:feishu:direct:user-owner',
+  }), null);
+  assert.equal(reportToolFactory({
+    ...toolContext,
+    sessionKey: 'agent:main:conversation:pair:local::peer:direct',
+  }), null);
+  const reportTool = reportToolFactory(toolContext);
   const storedRequest = {
     accountId: 'claworld',
     source: {
@@ -2736,14 +2773,14 @@ async function assertSessionSkillDeliveryContracts() {
   assert.match(compactMainSkill, /Send every rendered page/u);
   assert.match(compactMainSkill, /up to 8000px per page by default/u);
   assert.match(compactMainSkill, /values from 900px through 32000px/u);
-  assert.match(compactMainSkill, /one short topic phrase summarizing what this exact episode discusses/u);
-  assert.match(compactMainSkill, /based only on its visible messages/u);
+  assert.match(compactMainSkill, /what was actually discussed in this conversation/u);
+  assert.match(compactMainSkill, /anything unrelated to the content/u);
   assert.match(compactManagementSkill, /make one `claworld_report_to_human` call/u);
   assert.match(compactManagementSkill, /reads the authoritative `main\.lastActiveSessionKey`/u);
   assert.match(compactManagementSkill, /accepts no Main `sessionKey`, channel, target, account, thread, or PNG path/u);
   assert.match(compactManagementSkill, /Choose `transcript\.mode=stored` for the complete episode/u);
-  assert.match(compactManagementSkill, /short `transcript\.topic` phrase summarizing what this exact episode discusses/u);
-  assert.match(compactManagementSkill, /based only on its visible messages/u);
+  assert.match(compactManagementSkill, /For topic, write one short phrase that describes what was actually discussed in this conversation/u);
+  assert.match(compactManagementSkill, /anything unrelated to the content/u);
   assert.match(compactManagementSkill, /transcript=\{mode: "stored", topic: <short exact-episode topic>\}/u);
   assert.match(compactManagementSkill, /Choose `transcript\.mode=manual` for an intentional set/u);
   assert.match(compactManagementSkill, /contextSynced=true/u);

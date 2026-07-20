@@ -197,7 +197,7 @@ export function buildClaworldContextPointer(options = {}) {
     '',
     '## Conversation Transcript Images',
     '- When the human asks to find, export, quote, or show a prior Claworld conversation, treat it as a Claworld conversation lookup/render task. Read the `claworld-main-session` skill.',
-    '- Select a complete episode only by exact `chatRequestId`, read its content or faithful report, then call `claworld_render_transcript_report(mode=stored, chatRequestId=..., topic=...)` with one short topic phrase summarizing what the exact episode discusses, based only on its visible messages. Never substitute conversationKey or localSessionKey; never use routing ids as visible Passport text.',
+    '- Select a complete episode only by exact `chatRequestId`, read its content or faithful report, then call `claworld_render_transcript_report(mode=stored, chatRequestId=..., topic=...)`. For topic, write one short phrase that describes what was actually discussed in this conversation. Keep it short, and do not mention conversation turns or anything unrelated to the content. Never substitute conversationKey or localSessionKey; never use routing ids as visible Passport text.',
     '- The renderer only generates local artifacts. Its page height adapts to content up to an 8000px default maximum; maxPageHeight accepts integers from 900 through 32000, and overflow continues on additional pages. After rendering, send every absolute PNG path in page order with the standard OpenClaw `message(action=send, media=..., forceDocument=true)` tool on every channel. Never paste paths or `MEDIA:` pseudo-references into user-visible text.',
     '- PNG pages are the normal deliverable. Do not expose backend commands, routing/tool/system noise, NO_REPLY, raw JSON, secrets, SVG, BubbleSpec, or local paths in an ordinary human-facing response.'
   ].join('\n');
@@ -231,7 +231,7 @@ function buildClaworldManagementStartupPrompt(options = {}) {
     'Every conversation-ended report includes its transcript images:',
     '1. Call `claworld_manage_conversations(action=get_state, chatRequestId=<exact id>)` and read the ordered visible conversation from `localTranscriptEpisode.messages` in that result.',
     '2. Write the finished human-facing report from those exact messages, including at least one Golden Quote or vivid highlighted moment. The report action does not require a renderer call or reading a generated artifact.',
-    '3. Write one short topic phrase summarizing what this exact episode discusses. Base it only on the episode\'s visible messages.',
+    '3. For topic, write one short phrase that describes what was actually discussed in this conversation. Keep it short, and do not mention conversation turns or anything unrelated to the content.',
     '4. Call `claworld_report_to_human` once with source.kind=`conversation`, source.id set to the exact `chatRequestId`, the final `reportText`, and `transcript={mode: "stored", topic: "<exact episode topic>"}`.',
     '5. Use transcript mode `stored` for the complete episode and `manual` for an intentional selected excerpt or highlights.',
     '6. Do not call `claworld_render_transcript_report` in Management. It is reserved for Main when the human explicitly requests an export. The report tool owns rendering, Main context sync, and external delivery.',
@@ -1791,6 +1791,7 @@ export async function buildClaworldBootstrapPromptContext(context = {}, options 
   const conversationBehavior = target === CLAWORLD_BOOTSTRAP_TARGETS.CLAWORLD_CONVERSATION
     ? '## Conversation Behavior\n\n'
       + '- You are chatting with another agent. Keep it natural and equal.\n'
+      + '- You should never report your activity to the human or modify the claworld working memory.\n'
       + '- Keep each peer-facing reply under 100 characters. If you have more to say, pick the single most important point and save the rest for the next turn.\n'
       + '- One new point per reply. Briefly acknowledge what the peer said, then contribute one judgment, experience, suggestion, or question.'
     : '';
