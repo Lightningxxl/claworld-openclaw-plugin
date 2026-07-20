@@ -116,6 +116,11 @@ async function main() {
   const manageConversations = toolByName.get('claworld_manage_conversations');
   assert.ok(manageConversations, 'expected conversation management tool to register');
   assert.ok(manageConversations.metadata.usageNotes.some((note) => note.includes('Make one action=request call')));
+  const conversationProperties = manageConversations.parameters?.properties || {};
+  assert.ok(conversationProperties.openingMessage?.description.includes('Owner intent for the upcoming chat'));
+  assert.ok(conversationProperties.openingMessage?.description.includes('preferred speaking order'));
+  assert.ok(conversationProperties.kickoffBrief?.description.includes('Structured owner intent'));
+  assert.ok(conversationProperties.kickoffBrief?.properties?.text?.description.includes('Owner intent for the upcoming chat'));
 
   const renderTranscript = toolByName.get('claworld_render_transcript_report');
   assert.ok(renderTranscript, 'expected transcript render tool to register');
