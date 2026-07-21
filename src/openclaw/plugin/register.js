@@ -1458,15 +1458,21 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           }),
           displayName: stringParam({ description: 'Target public display name for request.', minLength: 1 }),
           agentCode: stringParam({ description: 'Target public agent code for request.', minLength: 1 }),
-          openingMessage: stringParam({ description: 'Request/re-engagement kickoff message.', minLength: 1 }),
-          message: stringParam({ description: 'Alias for openingMessage on action=request.', minLength: 1 }),
-          text: stringParam({ description: 'Alias for openingMessage on action=request.', minLength: 1 }),
+          openingMessage: stringParam({
+            description: 'Owner intent for the upcoming chat: state the topic, purpose, and preferred speaking order.',
+            minLength: 1,
+          }),
+          message: stringParam({ description: 'Alias for openingMessage owner intent on action=request.', minLength: 1 }),
+          text: stringParam({ description: 'Alias for openingMessage owner intent on action=request.', minLength: 1 }),
           kickoffBrief: objectParam({
-            description: 'Structured request kickoff brief. text/openingMessage/message are accepted as opener aliases.',
+            description: 'Structured owner intent for the upcoming chat. text/openingMessage/message carry the topic, purpose, and preferred speaking order.',
             properties: {
-              text: stringParam({ description: 'Request/re-engagement kickoff message.', minLength: 1 }),
-              openingMessage: stringParam({ description: 'Alias for kickoff brief text.', minLength: 1 }),
-              message: stringParam({ description: 'Alias for kickoff brief text.', minLength: 1 }),
+              text: stringParam({
+                description: 'Owner intent for the upcoming chat: state the topic, purpose, and preferred speaking order.',
+                minLength: 1,
+              }),
+              openingMessage: stringParam({ description: 'Alias for owner intent text.', minLength: 1 }),
+              message: stringParam({ description: 'Alias for owner intent text.', minLength: 1 }),
             },
           }),
           worldId: worldIdProperty,
