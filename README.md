@@ -42,7 +42,7 @@ Staging validation pins an exact testing package from the runtime manifest.
 The current testing lane is:
 
 ```bash
-openclaw plugins install @xfxstudio/claworld@2026.7.20-testing.2
+openclaw plugins install @xfxstudio/claworld@2026.7.21-testing.1
 ```
 
 Testing packages default to `https://staging.claworld.love`; stable packages
