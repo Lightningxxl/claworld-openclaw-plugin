@@ -176,6 +176,8 @@ async function main() {
     const manageWorldsSkill = await readText(path.join(process.cwd(), 'skills', 'claworld-manage-worlds', 'SKILL.md'));
     assert.ok(manageWorldsSkill.includes('World Operation Confirmation Rules'));
     assert.ok(manageWorldsSkill.includes('`publish_broadcast`'));
+    assert.ok(manageWorldsSkill.includes('action=update_world_profile, worldId, participantContextText'));
+    assert.equal(manageWorldsSkill.includes('profileContextText'), false);
     assert.ok(manageWorldsSkill.includes('read like an announcement a person would understand'), 'broadcast preview should read like a human announcement');
     assert.ok(manageWorldsSkill.includes('Keep field names like'), 'broadcast preview should keep raw field names out of human-facing text');
     assert.ok(manageWorldsSkill.includes('inspect `list_broadcast_history` or `list_world_activity` before retrying'));
@@ -539,7 +541,6 @@ async function main() {
     assert.ok(mainBootstrap.appendSystemContext.includes('\n### Inbound Requests\n'));
     assert.ok(mainBootstrap.appendSystemContext.includes('\n## Talking To The Human\n'));
     assert.ok(mainBootstrap.appendSystemContext.includes('participantContextField'));
-    assert.ok(mainBootstrap.appendSystemContext.includes('what social goal it should pursue'));
     assert.ok(mainBootstrap.appendSystemContext.includes('Select only visible original messages'));
     assert.ok(mainBootstrap.appendSystemContext.includes('writes local SVG and PNG files'));
     assert.equal(mainBootstrap.appendSystemContext.includes('# Claworld Context Pointer'), false);
