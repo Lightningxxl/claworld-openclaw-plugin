@@ -15,7 +15,7 @@ import {
 const CANVAS_MARGIN = 24;
 const FRAME_MARGIN = 16;
 export const HEADER_Y = 48;
-export const HEADER_CARD_HEIGHT_FULL = 470;
+export const HEADER_CARD_HEIGHT_FULL = 493;
 export const HEADER_CARD_HEIGHT_NO_CONTEXT = 168;
 export const HEADER_CARD_HEIGHT_COMPACT = 96;
 export const HEADER_BOTTOM_PAD = 20;
@@ -41,11 +41,14 @@ export const HEADER_TOPIC_MAX_UNITS = 26;
 export const HEADER_COMPACT_TOPIC_MAX_UNITS = 26;
 export const HEADER_TOPIC_SIDE_PADDING = 36;
 export const CONTEXT_CARD_HEIGHT = 76;
-export const CONTEXT_CARD_GAP = 22;
+export const CONTEXT_CARD_GAP = 28;
 export const PROFILE_CARD_HEIGHT = 82;
 export const PROFILE_CARD_GAP = 16;
-export const PROFILE_TO_CONTEXT_GAP = 29;
+export const PROFILE_CARD_STACK_GAP = 28;
+export const PROFILE_TO_CONTEXT_GAP = 28;
+export const CONTEXT_CARDS_TOP = 171;
 export const CONTEXT_LABEL_FONT_SIZE = 12;
+export const CONTEXT_LEGEND_HEIGHT = 26;
 export const CONTEXT_TEXT_FONT_SIZE = 14;
 export const CONTEXT_TEXT_LINE_HEIGHT = 21;
 export const CONTEXT_TEXT_MAX_LINES = 2;
@@ -58,9 +61,9 @@ const TAG_ROW_GAP = 10;
 const TAG_FALLBACK_MAX_COLS = 10;
 const MAX_VISIBLE_TAGS = 8;
 const TEXT_UNIT_PX = 18;
-export const IDENTITY_NAME_FONT_SIZE = 20;
+export const IDENTITY_NAME_FONT_SIZE = 22;
 export const IDENTITY_CODE_FONT_SIZE = 13;
-export const IDENTITY_COMPACT_NAME_FONT_SIZE = 18;
+export const IDENTITY_COMPACT_NAME_FONT_SIZE = 19;
 export const IDENTITY_COMPACT_CODE_FONT_SIZE = 12;
 export const BLACK = '#090909';
 
@@ -76,6 +79,7 @@ const THEME = Object.freeze({
   timeFill: '#FFFDF7',
   directBadge: '#67DDF1',
   worldBadge: '#FFB34F',
+  roleBadge: '#FF6A9A',
   chatBadge: '#D3B7FF',
   passportStrip: '#FFFDF7',
 });
@@ -257,24 +261,34 @@ export function headerContextBlocks(header, fallbackText = '') {
   return blocks.slice(0, 4);
 }
 
-export function fullHeaderCardHeight(contextBlocks) {
+export function fullHeaderCardHeight(contextBlocks, chatMode = '') {
   const ordered = orderedContextBlocks(Array.isArray(contextBlocks) ? contextBlocks : []);
   if (!ordered.length) return HEADER_CARD_HEIGHT_NO_CONTEXT;
   const hasProfileRow = ordered.some((block) => ['agent', 'human'].includes(contextCardRole(block)));
   const detailCount = ordered.filter((block) => !['agent', 'human'].includes(contextCardRole(block))).length;
-  let contentHeight = hasProfileRow ? PROFILE_CARD_HEIGHT : 0;
+  const profileCount = ordered.filter((block) => ['agent', 'human'].includes(contextCardRole(block))).length;
+  let contentHeight;
+  if (hasProfileRow && chatMode === 'direct') {
+    contentHeight = profileCount * PROFILE_CARD_HEIGHT;
+    contentHeight += Math.max(0, profileCount - 1) * PROFILE_CARD_STACK_GAP;
+  } else {
+    contentHeight = hasProfileRow ? PROFILE_CARD_HEIGHT : 0;
+  }
   if (hasProfileRow && detailCount) contentHeight += PROFILE_TO_CONTEXT_GAP;
   if (detailCount) {
     contentHeight += detailCount * CONTEXT_CARD_HEIGHT;
     contentHeight += Math.max(0, detailCount - 1) * CONTEXT_CARD_GAP;
   }
-  return Math.min(HEADER_CARD_HEIGHT_FULL, 153 + contentHeight + 32);
+  return Math.min(HEADER_CARD_HEIGHT_FULL, CONTEXT_CARDS_TOP + contentHeight + 32);
 }
 
 export function transcriptHeaderHeight({ compact = false, header = null, subtitle = '' } = {}) {
   const cardHeight = compact
     ? HEADER_CARD_HEIGHT_COMPACT
-    : fullHeaderCardHeight(headerContextBlocks(header, header ? '' : subtitle));
+    : fullHeaderCardHeight(
+      headerContextBlocks(header, header ? '' : subtitle),
+      headerValue(header, 'chatMode', 'chat_mode', 'mode').toLowerCase(),
+    );
   return HEADER_Y + cardHeight + HEADER_BOTTOM_PAD;
 }
 
@@ -731,27 +745,93 @@ function renderIdentityTextSvg(name, code, x, nameY, codeY, nameFontSize, codeFo
   return parts.join('\n');
 }
 
+function renderInlineIdentitySvg(
+  name,
+  code,
+  x,
+  y,
+  nameWidth,
+  gap,
+  nameFontSize,
+  codeFontSize,
+  className,
+) {
+  const parts = [
+    renderInlineTextSvg(name, x, y, {
+      fontSize: nameFontSize,
+      fontWeight: 900,
+      fill: BLACK,
+      className: `${className}-name identity-name identity-text identity-inline`,
+    }),
+  ];
+  if (code) {
+    parts.push(renderInlineTextSvg(code, x + nameWidth + gap, y, {
+      fontSize: codeFontSize,
+      fontWeight: 800,
+      fill: '#68645F',
+      className: `${className}-code identity-code identity-text identity-inline`,
+    }));
+  }
+  return parts.join('\n');
+}
+
 export function identityLabelSvg(x, y, width, identity, dotFill, className, compact) {
-  const dotY = y + (compact ? 10 : 15);
   const radius = compact ? 5 : 6;
+  const dotGap = 4;
   const nameFontSize = compact ? IDENTITY_COMPACT_NAME_FONT_SIZE : IDENTITY_NAME_FONT_SIZE;
   const codeFontSize = compact ? IDENTITY_COMPACT_CODE_FONT_SIZE : IDENTITY_CODE_FONT_SIZE;
   const nameY = y + (compact ? 17 : 21);
   const codeY = y + (compact ? 32 : 40);
-  const dotGap = 4;
+  const inlineY = y + (compact ? 25 : 29);
   const dotReserve = radius * 2 + dotGap + 2;
   const availablePx = Math.max(18, width - dotReserve * 2);
   const [rawName, rawCode] = splitIdentity(identity);
-  const visibleName = ellipsizeIdentityName(rawName, availablePx, nameFontSize);
-  const visibleCode = ellipsizeText(rawCode, availablePx / codeFontSize, '…');
-  const nameWidth = identityNameRenderWidth(visibleName, nameFontSize);
   const textCenterX = x + width / 2;
-  const dotX = textCenterX - nameWidth / 2 - dotGap - radius;
+  const nameWidth = identityNameRenderWidth(rawName, nameFontSize);
+  const codeWidth = rawCode ? identityNameRenderWidth(rawCode, codeFontSize) : 0;
+  const inlineGap = rawCode ? 5 : 0;
+  const inlineWidth = nameWidth + inlineGap + codeWidth;
+  const useInline = inlineWidth <= availablePx;
+  let dotX;
+  let dotY;
+  let identitySvg;
+  if (useInline) {
+    const textLeft = textCenterX - inlineWidth / 2;
+    dotY = inlineY - (compact ? 6 : 7);
+    dotX = textLeft - dotGap - radius;
+    identitySvg = renderInlineIdentitySvg(
+      rawName,
+      rawCode,
+      textLeft,
+      inlineY,
+      nameWidth,
+      inlineGap,
+      nameFontSize,
+      codeFontSize,
+      className,
+    );
+  } else {
+    const visibleName = ellipsizeIdentityName(rawName, availablePx, nameFontSize);
+    const visibleCode = ellipsizeText(rawCode, availablePx / codeFontSize, '…');
+    const visibleNameWidth = identityNameRenderWidth(visibleName, nameFontSize);
+    dotY = y + (compact ? 10 : 15);
+    dotX = textCenterX - visibleNameWidth / 2 - dotGap - radius;
+    identitySvg = renderIdentityTextSvg(
+      visibleName,
+      visibleCode,
+      textCenterX,
+      nameY,
+      codeY,
+      nameFontSize,
+      codeFontSize,
+      className,
+    );
+  }
   return [
     `<g class="identity-label ${className}">`,
     `<title>${escapeXml(identity)}</title>`,
     `<circle cx="${fixed(dotX)}" cy="${fixed(dotY)}" r="${radius}" fill="${dotFill}" stroke="${BLACK}" stroke-width="2"/>`,
-    renderIdentityTextSvg(visibleName, visibleCode, textCenterX, nameY, codeY, nameFontSize, codeFontSize, className),
+    identitySvg,
     '</g>',
   ].join('\n');
 }
@@ -821,39 +901,47 @@ export function contextCardLabel(kind, fallback) {
   }[contextCardRole({ kind })] || String(fallback || 'Profile').trim();
 }
 
+export function contextCardAccent(role) {
+  return {
+    human: THEME.directBadge,
+    world: THEME.worldBadge,
+    role: THEME.roleBadge,
+  }[role] || THEME.leftLabel;
+}
+
 export function contextFieldIconSvg(cx, cy, kind) {
   const role = contextCardRole({ kind });
-  const fill = role === 'world' ? THEME.worldBadge : THEME.leftLabel;
+  const fill = contextCardAccent(role);
   if (role === 'world') {
     return [
       '<g class="context-icon context-icon-world">',
-      `<circle cx="${fixed(cx)}" cy="${fixed(cy)}" r="7" fill="${fill}" stroke="${BLACK}" stroke-width="1.5"/>`,
-      `<path d="M${fixed(cx - 6)} ${fixed(cy)} H${fixed(cx + 6)} M${fixed(cx)} ${fixed(cy - 6)} C${fixed(cx - 3)} ${fixed(cy - 2)} ${fixed(cx - 3)} ${fixed(cy + 2)} ${fixed(cx)} ${fixed(cy + 6)} M${fixed(cx)} ${fixed(cy - 6)} C${fixed(cx + 3)} ${fixed(cy - 2)} ${fixed(cx + 3)} ${fixed(cy + 2)} ${fixed(cx)} ${fixed(cy + 6)}" fill="none" stroke="${BLACK}" stroke-width="1" stroke-linecap="round"/>`,
+      `<circle cx="${fixed(cx)}" cy="${fixed(cy)}" r="5.5" fill="${fill}" stroke="${BLACK}" stroke-width="1.2"/>`,
+      `<path d="M${fixed(cx - 4.7)} ${fixed(cy)} H${fixed(cx + 4.7)} M${fixed(cx)} ${fixed(cy - 4.7)} C${fixed(cx - 2.4)} ${fixed(cy - 1.6)}, ${fixed(cx - 2.4)} ${fixed(cy + 1.6)}, ${fixed(cx)} ${fixed(cy + 4.7)} M${fixed(cx)} ${fixed(cy - 4.7)} C${fixed(cx + 2.4)} ${fixed(cy - 1.6)}, ${fixed(cx + 2.4)} ${fixed(cy + 1.6)}, ${fixed(cx)} ${fixed(cy + 4.7)}" fill="none" stroke="${BLACK}" stroke-width="0.9" stroke-linecap="round"/>`,
       '</g>',
     ].join('\n');
   }
   if (role === 'role') {
     return [
       '<g class="context-icon context-icon-role">',
-      `<path d="M${fixed(cx)} ${fixed(cy + 8)} C${fixed(cx - 5)} ${fixed(cy + 2)}, ${fixed(cx - 7)} ${fixed(cy - 1)}, ${fixed(cx - 7)} ${fixed(cy - 4)} A7 7 0 1 1 ${fixed(cx + 7)} ${fixed(cy - 4)} C${fixed(cx + 7)} ${fixed(cy - 1)}, ${fixed(cx + 5)} ${fixed(cy + 2)}, ${fixed(cx)} ${fixed(cy + 8)} Z" fill="${fill}" stroke="${BLACK}" stroke-width="1.5" stroke-linejoin="round"/>`,
-      `<circle cx="${fixed(cx)}" cy="${fixed(cy - 4)}" r="2.2" fill="${THEME.passportStrip}" stroke="${BLACK}" stroke-width="1.2"/>`,
+      `<path d="M${fixed(cx)} ${fixed(cy + 6.2)} C${fixed(cx - 4)} ${fixed(cy + 1.7)}, ${fixed(cx - 5.5)} ${fixed(cy - 0.8)}, ${fixed(cx - 5.5)} ${fixed(cy - 3.2)} A5.5 5.5 0 1 1 ${fixed(cx + 5.5)} ${fixed(cy - 3.2)} C${fixed(cx + 5.5)} ${fixed(cy - 0.8)}, ${fixed(cx + 4)} ${fixed(cy + 1.7)}, ${fixed(cx)} ${fixed(cy + 6.2)} Z" fill="${fill}" stroke="${BLACK}" stroke-width="1.2" stroke-linejoin="round"/>`,
+      `<circle cx="${fixed(cx)}" cy="${fixed(cy - 3.2)}" r="1.7" fill="${THEME.passportStrip}" stroke="${BLACK}" stroke-width="0.9"/>`,
       '</g>',
     ].join('\n');
   }
   if (role === 'agent') {
     return [
       '<g class="context-icon context-icon-agent">',
-      `<line x1="${fixed(cx)}" y1="${fixed(cy - 8)}" x2="${fixed(cx)}" y2="${fixed(cy - 5)}" stroke="${BLACK}" stroke-width="1.4"/>`,
-      `<circle cx="${fixed(cx)}" cy="${fixed(cy - 9)}" r="1.4" fill="${fill}" stroke="${BLACK}" stroke-width="1"/>`,
-      `<rect x="${fixed(cx - 7)}" y="${fixed(cy - 5)}" width="14" height="11" rx="3" fill="${fill}" stroke="${BLACK}" stroke-width="1.5"/>`,
-      `<circle cx="${fixed(cx - 3)}" cy="${fixed(cy)}" r="1.2" fill="${BLACK}"/><circle cx="${fixed(cx + 3)}" cy="${fixed(cy)}" r="1.2" fill="${BLACK}"/>`,
+      `<line x1="${fixed(cx)}" y1="${fixed(cy - 6.2)}" x2="${fixed(cx)}" y2="${fixed(cy - 4)}" stroke="${BLACK}" stroke-width="1.1"/>`,
+      `<circle cx="${fixed(cx)}" cy="${fixed(cy - 7.2)}" r="1.1" fill="${fill}" stroke="${BLACK}" stroke-width="0.8"/>`,
+      `<rect x="${fixed(cx - 5.5)}" y="${fixed(cy - 4)}" width="11" height="9" rx="2.4" fill="${fill}" stroke="${BLACK}" stroke-width="1.2"/>`,
+      `<circle cx="${fixed(cx - 2.3)}" cy="${fixed(cy)}" r="0.9" fill="${BLACK}"/><circle cx="${fixed(cx + 2.3)}" cy="${fixed(cy)}" r="0.9" fill="${BLACK}"/>`,
       '</g>',
     ].join('\n');
   }
   return [
     '<g class="context-icon context-icon-human">',
-    `<circle cx="${fixed(cx)}" cy="${fixed(cy - 4)}" r="4" fill="${fill}" stroke="${BLACK}" stroke-width="1.5"/>`,
-    `<path d="M${fixed(cx - 7)} ${fixed(cy + 7)} C${fixed(cx - 7)} ${fixed(cy + 1)}, ${fixed(cx - 4)} ${fixed(cy)}, ${fixed(cx)} ${fixed(cy)} C${fixed(cx + 4)} ${fixed(cy)}, ${fixed(cx + 7)} ${fixed(cy + 1)}, ${fixed(cx + 7)} ${fixed(cy + 7)} Z" fill="${fill}" stroke="${BLACK}" stroke-width="1.5" stroke-linejoin="round"/>`,
+    `<circle cx="${fixed(cx)}" cy="${fixed(cy - 3.2)}" r="3.2" fill="${fill}" stroke="${BLACK}" stroke-width="1.2"/>`,
+    `<path d="M${fixed(cx - 5.5)} ${fixed(cy + 5.5)} C${fixed(cx - 5.5)} ${fixed(cy + 1)}, ${fixed(cx - 3.2)} ${fixed(cy)}, ${fixed(cx)} ${fixed(cy)} C${fixed(cx + 3.2)} ${fixed(cy)}, ${fixed(cx + 5.5)} ${fixed(cy + 1)}, ${fixed(cx + 5.5)} ${fixed(cy + 5.5)} Z" fill="${fill}" stroke="${BLACK}" stroke-width="1.2" stroke-linejoin="round"/>`,
     '</g>',
   ].join('\n');
 }
@@ -889,12 +977,13 @@ export function renderContextCard(x, y, width, block, compact = false) {
   const contentWidth = Math.max(48, width - 54);
   const lines = boundedContextLines(text, contentWidth);
   const classKind = kind.toLowerCase().replace(/[^\p{Letter}\p{Number}]+/gu, '-').replace(/^-|-$/gu, '') || 'profile';
-  const accent = contextCardRole(block) === 'world' ? THEME.worldBadge : THEME.leftLabel;
+  const role = contextCardRole(block);
+  const accent = contextCardAccent(role);
   const accessibleText = ellipsizeText(text, 120, '…');
   const accessible = accessibleText ? `${label}: ${accessibleText}` : label;
   const legendWidth = Math.max(
     64,
-    Math.min(width - 40, 42 + identityNameRenderWidth(label, CONTEXT_LABEL_FONT_SIZE)),
+    Math.min(width - 40, 40 + identityNameRenderWidth(label, CONTEXT_LABEL_FONT_SIZE)),
   );
   const parts = [
     `<g class="passport-context-field context-${classKind}" role="group" aria-label="${escapeXml(accessible)}">`,
@@ -902,9 +991,9 @@ export function renderContextCard(x, y, width, block, compact = false) {
     `<rect x="${fixed(x + 3)}" y="${fixed(y + 3)}" width="${fixed(width)}" height="${cardHeight}" rx="15" fill="${BLACK}"/>`,
     `<rect x="${fixed(x)}" y="${fixed(y)}" width="${fixed(width)}" height="${cardHeight}" rx="15" fill="${THEME.passportStrip}" stroke="${BLACK}" stroke-width="2.5"/>`,
     `<rect x="${fixed(x + 8)}" y="${fixed(y + 10)}" width="6" height="${cardHeight - 20}" rx="3" fill="${accent}"/>`,
-    `<rect class="context-field-legend" x="${fixed(x + 20)}" y="${fixed(y - 10)}" width="${fixed(legendWidth)}" height="22" fill="${THEME.headerFill}"/>`,
-    contextFieldIconSvg(x + 34, y + 1, kind),
-    renderInlineTextSvg(label, x + 54, y + 5, {
+    `<rect class="context-field-legend" x="${fixed(x + 20)}" y="${fixed(y - 12.5)}" width="${fixed(legendWidth)}" height="${CONTEXT_LEGEND_HEIGHT}" rx="${fixed(CONTEXT_LEGEND_HEIGHT / 2)}" fill="${THEME.passportStrip}" stroke="${BLACK}" stroke-width="2.2"/>`,
+    contextFieldIconSvg(x + 35, y + 0.5, kind),
+    renderInlineTextSvg(label, x + 52, y + 4.5, {
       fontSize: CONTEXT_LABEL_FONT_SIZE,
       fontWeight: 900,
       fill: '#68645F',
@@ -925,18 +1014,30 @@ export function renderContextCard(x, y, width, block, compact = false) {
   return parts.join('\n');
 }
 
-export function renderContextCards(x, y, width, blocks) {
+export function renderContextCards(x, y, width, blocks, verticalProfiles = false) {
   const ordered = orderedContextBlocks(blocks);
   const profileBlocks = ordered.filter((block) => ['agent', 'human'].includes(contextCardRole(block)));
   const detailBlocks = ordered.filter((block) => !['agent', 'human'].includes(contextCardRole(block)));
   const parts = [];
   let nextY = y;
   if (profileBlocks.length) {
-    const cardWidth = (width - PROFILE_CARD_GAP) / 2;
     const byRole = new Map(profileBlocks.map((block) => [contextCardRole(block), block]));
-    ['agent', 'human'].forEach((role, index) => {
-      const block = byRole.get(role);
-      if (block) {
+    const visibleProfiles = ['agent', 'human'].map((role) => byRole.get(role)).filter(Boolean);
+    if (verticalProfiles) {
+      visibleProfiles.forEach((block, index) => {
+        parts.push(renderContextCard(
+          x,
+          y + index * (PROFILE_CARD_HEIGHT + PROFILE_CARD_STACK_GAP),
+          width,
+          block,
+          true,
+        ));
+      });
+      nextY += visibleProfiles.length * PROFILE_CARD_HEIGHT;
+      nextY += Math.max(0, visibleProfiles.length - 1) * PROFILE_CARD_STACK_GAP;
+    } else {
+      const cardWidth = (width - PROFILE_CARD_GAP) / 2;
+      visibleProfiles.forEach((block, index) => {
         parts.push(renderContextCard(
           x + index * (cardWidth + PROFILE_CARD_GAP),
           y,
@@ -944,9 +1045,10 @@ export function renderContextCards(x, y, width, blocks) {
           block,
           true,
         ));
-      }
-    });
-    nextY += PROFILE_CARD_HEIGHT + (detailBlocks.length ? PROFILE_TO_CONTEXT_GAP : 0);
+      });
+      nextY += PROFILE_CARD_HEIGHT;
+    }
+    if (detailBlocks.length) nextY += PROFILE_TO_CONTEXT_GAP;
   }
   for (const block of detailBlocks) {
     parts.push(renderContextCard(x, nextY, width, block));
@@ -960,7 +1062,7 @@ export function renderFullHeader(page) {
   const y = HEADER_Y;
   const width = page.width - (CANVAS_MARGIN + 26) * 2;
   const data = passportData(page);
-  const height = fullHeaderCardHeight(data.contextBlocks);
+  const height = fullHeaderCardHeight(data.contextBlocks, data.mode);
   const modeWidth = modeBadgeWidth(data.modeLabel);
   const currentPageLabel = pageLabel(page);
   const pageWidth = smallBadgeWidth(currentPageLabel, 48);
@@ -1015,7 +1117,13 @@ export function renderFullHeader(page) {
     data.initiatedBy,
   ));
   if (data.contextBlocks.length) {
-    parts.push(renderContextCards(x + 18, y + 153, width - 36, data.contextBlocks));
+    parts.push(renderContextCards(
+      x + 18,
+      y + CONTEXT_CARDS_TOP,
+      width - 36,
+      data.contextBlocks,
+      data.mode === 'direct',
+    ));
   }
   parts.push('</g>');
   return parts.join('\n');
