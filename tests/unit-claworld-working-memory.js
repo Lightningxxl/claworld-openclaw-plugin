@@ -101,6 +101,10 @@ function buildMemoryFixture(memory = '- none') {
   ].join('\n');
 }
 
+function markdownHeadings(text) {
+  return text.split('\n').filter((line) => /^#{1,4} /u.test(line));
+}
+
 async function main() {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'claworld-working-memory-'));
   try {
@@ -206,6 +210,107 @@ async function main() {
     assert.ok(managementSkill.includes("use the notification's exact `chatRequestId`"));
     assert.ok(managementSkill.includes('Process every delivered conversation-ended notification'));
     assert.equal(managementSkill.includes('has already been reported successfully'), false);
+
+    assert.deepEqual(markdownHeadings(helpSkill), [
+      '# Claworld Help',
+      '## When To Read This',
+      '## Your Role',
+      '## Default Diagnostic Path',
+      '## Account And Policy Tools',
+      '## Plugin Lifecycle',
+      '### First Install',
+      '### Upgrade An Installed Plugin',
+      '### Uninstall',
+      '## Troubleshooting Order',
+      '### World, Join, Or Conversation Errors',
+      '### Accepting A Request',
+      '### Conversation Or Request State',
+      '### Conversation Request Targets',
+      '## Validation',
+      '## Feedback',
+    ]);
+    assert.deepEqual(markdownHeadings(mainSkill), [
+      '# Claworld Main Session Skill',
+      '## Your Role',
+      '## Sessions',
+      '## Talking To The Human',
+      '## Working Memory',
+      '## Tools',
+      '## Actions',
+      '### Discovering Worlds',
+      '### Joining a World',
+      '### Finding Members',
+      '### Starting a Conversation',
+      '### Inbound Requests',
+      '### Exporting a Transcript',
+      '### Following Up on Management Reports',
+      '## Contact Settings And Review Instructions',
+      '## Guardrails',
+      '## Verification',
+      '## Quick Reference',
+      '## When To Load This Skill',
+    ]);
+    assert.deepEqual(markdownHeadings(manageWorldsSkill), [
+      '# Claworld World Management',
+      '## Explaining Worlds To The Human',
+      '## Public Capabilities',
+      '## World Operation Confirmation Rules',
+      '## `worldContextText` Minimum Contract',
+      '## World Context Templates',
+      '## Join And Follow-Up',
+      '## Broadcast / Activity',
+      '## Common Workflows',
+      '### Creating a World',
+      '### Managing Owned Worlds',
+      '### Managing Joined Worlds',
+      '### Reviewing Received Invites',
+      '## Quick Reference',
+      '## Pitfalls',
+      '## Verification',
+    ]);
+    assert.deepEqual(markdownHeadings(managementSkill), [
+      '## Your Role',
+      '## Working Memory',
+      '## Wake Loop',
+      '## Handling Notifications',
+      '### Conversation Ended',
+      '#### What To Do',
+      '#### What To Report',
+      '### Chat Request Created',
+      '#### What To Do',
+      '#### What To Report',
+      '### World Invitation Received',
+      '#### What To Do',
+      '#### What To Report',
+      '### World Broadcast Published',
+      '#### What To Do',
+      '#### What To Report',
+      '### Other Notifications',
+      '## Reporting',
+      '### Report Principles',
+      '### What Every Report Should Cover',
+      '### Golden Quote',
+      '### Information Exchange Opportunity',
+      '### Openings: Never The Same Twice',
+      '### Weave Your Judgment Into The Narrative',
+      "### Combined Reports: Don't Sound Like An Assembly Line",
+      '### Quick Reference: Stiff vs. Natural',
+      '### Ending: Always Leave A CTA',
+      '### Full Examples',
+      '### Report Content Guardrails',
+      '## Delivery',
+      '### Main Session And Human Route',
+      '### Preparing The Tool Call',
+      '### One-call Reporting',
+      '### After The Tool Call',
+      '## Proactive Actions',
+      '### When to Reach Out',
+      '### Starting a World-Scoped Conversation',
+      '### Direct Conversations',
+      '## Tools',
+      '## Guardrails',
+      '## Quick Reference',
+    ]);
 
     const runtimeEvent = buildClaworldRuntimeMaintenanceEvent({
       timestamp: '2026-04-22T00:00:00.000Z',
