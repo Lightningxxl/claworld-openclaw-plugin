@@ -23,19 +23,24 @@ import {
 } from '../src/openclaw/runtime/transcript-report.js';
 import {
   boundedContextLines,
+  contextCardAccent,
   contextCardLabel,
+  CONTEXT_CARDS_TOP,
   ellipsizeTopicText,
   fullHeaderCardHeight,
   HEADER_TOPIC_SIDE_PADDING,
   headerContextBlocks,
   identityLabelSvg,
   identityNameRenderWidth,
+  IDENTITY_NAME_FONT_SIZE,
   measureTranscriptItem,
   paginateTranscriptItems,
   renderContextCards,
   renderCompactHeader,
   renderFullHeader,
   renderInlineTextSvg,
+  PROFILE_CARD_HEIGHT,
+  PROFILE_CARD_STACK_GAP,
   topicRenderUnits,
 } from '../src/openclaw/runtime/transcript-report-comic-grid.js';
 import {
@@ -1968,17 +1973,42 @@ async function assertManualContractAndVisualHelpers(workspaceRoot) {
   );
   assert.match(fullLatinIdentitySvg, />Mira<\/text>/u);
   assert.equal(fullLatinIdentitySvg.includes('Mi…'), false, 'a short Latin name must not be truncated');
+  const inlineIdentitySvg = identityLabelSvg(
+    0,
+    0,
+    250,
+    'Rin#R07',
+    '#62E69D',
+    'identity-peer',
+    false,
+  );
+  const stackedIdentitySvg = identityLabelSvg(
+    0,
+    0,
+    250,
+    'Extremely long public display name#Z99TMV',
+    '#62E69D',
+    'identity-peer',
+    false,
+  );
+  assert.match(inlineIdentitySvg, /identity-name identity-text identity-inline/u);
+  assert.match(inlineIdentitySvg, /identity-code identity-text identity-inline/u);
+  assert.equal((inlineIdentitySvg.match(/y="29\.0"/gu) || []).length, 2);
+  assert.equal(inlineIdentitySvg.includes('text-anchor="middle"'), false);
+  assert.match(stackedIdentitySvg, /identity-peer-name[^>]*text-anchor="middle"/u);
+  assert.match(stackedIdentitySvg, /identity-peer-code[^>]*text-anchor="middle"/u);
+  assert.match(stackedIdentitySvg, /y="21\.0"/u);
+  assert.match(stackedIdentitySvg, /y="40\.0"/u);
   const circleX = Number(/<circle cx="([^"]+)"/u.exec(fullCjkIdentitySvg)?.[1]);
-  const nameCenterX = Number(/identity-peer-name[^>]* x="([^"]+)"/u.exec(fullCjkIdentitySvg)?.[1]);
-  const cjkNameBounds = await rasterTextBounds('林间灯', { fontSize: 20, fontWeight: 900 });
-  assert.ok(Number.isFinite(circleX) && Number.isFinite(nameCenterX));
+  const nameLeftX = Number(/identity-peer-name[^>]* x="([^"]+)"/u.exec(fullCjkIdentitySvg)?.[1]);
+  assert.ok(Number.isFinite(circleX) && Number.isFinite(nameLeftX));
   assert.ok(
-    nameCenterX - cjkNameBounds.width / 2 >= circleX + 6 + 1,
+    nameLeftX >= circleX + 6 + 1,
     'identity status dot must not overlap the first rendered name glyph',
   );
-  const cjkEllipsisBounds = await rasterTextBounds('林…', { fontSize: 20, fontWeight: 900 });
+  const cjkEllipsisBounds = await rasterTextBounds('林…', { fontSize: IDENTITY_NAME_FONT_SIZE, fontWeight: 900 });
   assert.ok(
-    identityNameRenderWidth('林…', 20) >= cjkEllipsisBounds.width - 2,
+    identityNameRenderWidth('林…', IDENTITY_NAME_FONT_SIZE) >= cjkEllipsisBounds.width - 2,
     'CJK ellipsis width budgeting must contain the rendered glyphs',
   );
   assert.equal(contextCardLabel('peerGlobalProfile', 'Agent Profile'), 'About this agent');
@@ -1999,6 +2029,23 @@ async function assertManualContractAndVisualHelpers(workspaceRoot) {
   for (const icon of ['context-icon-agent', 'context-icon-human', 'context-icon-world', 'context-icon-role']) {
     assert.ok(contextCards.includes(icon));
   }
+  assert.match(contextCards, /x="0\.0" y="0\.0" width="285\.0" height="82"/u);
+  assert.match(contextCards, /x="301\.0" y="0\.0" width="285\.0" height="82"/u);
+  assert.match(contextCards, /x="0\.0" y="110\.0" width="586\.0" height="76"/u);
+  assert.match(contextCards, /x="0\.0" y="214\.0" width="586\.0" height="76"/u);
+  const directContextCards = renderContextCards(0, 0, 586, contextBlocks.slice(0, 2), true);
+  assert.match(directContextCards, /x="0\.0" y="0\.0" width="586\.0" height="82"/u);
+  assert.match(directContextCards, /x="0\.0" y="110\.0" width="586\.0" height="82"/u);
+  assert.equal(
+    fullHeaderCardHeight(contextBlocks.slice(0, 2), 'direct'),
+    CONTEXT_CARDS_TOP + 2 * PROFILE_CARD_HEIGHT + PROFILE_CARD_STACK_GAP + 32,
+  );
+  assert.equal((contextCards.match(/class="context-field-legend"/gu) || []).length, 4);
+  assert.equal((contextCards.match(/rx="13\.0" fill="#FFFDF7" stroke="#090909"/gu) || []).length, 4);
+  assert.deepEqual(
+    ['agent', 'human', 'world', 'role'].map(contextCardAccent),
+    ['#62E69D', '#67DDF1', '#FFB34F', '#FF6A9A'],
+  );
   assert.ok(fullHeaderCardHeight(contextBlocks) > fullHeaderCardHeight(contextBlocks.slice(0, 2)));
   const contextLines = boundedContextLines(
     'A deliberately verbose public context that should be bounded to two visible lines and end with an ellipsis when it overflows the card.',
