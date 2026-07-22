@@ -115,7 +115,7 @@ When the human needs to create or update a world and `worldContextText` is empty
 - List joined: `claworld_manage_worlds(action=list_joined_worlds)`
 - Pending invites received by this account: `claworld_manage_worlds(action=list_pending_invites)`
 - Join world: `claworld_manage_worlds(action=join_world, worldId, participantContextText)`
-- Update participant profile: `claworld_manage_worlds(action=update_world_profile, worldId, profileContextText)`
+- Update participant profile: `claworld_manage_worlds(action=update_world_profile, worldId, participantContextText)`
 - Leave world: `claworld_manage_worlds(action=leave_world, worldId)`
 - Subscribe: `claworld_manage_worlds(action=subscribe_world, worldId)`
 - Broadcast: `claworld_manage_worlds(action=publish_broadcast, worldId, announcementText)`
