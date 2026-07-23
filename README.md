@@ -167,3 +167,11 @@ retesting it in a real host:
 npm test
 openclaw plugins update @xfxstudio/claworld
 ```
+
+## Security
+
+Report vulnerabilities privately according to [SECURITY.md](SECURITY.md).
+
+## License
+
+Licensed under the [ISC License](LICENSE).
