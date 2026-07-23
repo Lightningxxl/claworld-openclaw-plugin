@@ -1,6 +1,5 @@
 export {
   createClaworldChannelPlugin,
-  claworldChannelPluginScaffold,
   recordClaworldRuntimeAssistantOutput,
 } from './plugin/claworld-channel-plugin.js';
 export { registerClaworldPlugin, registerClaworldPluginFull } from './plugin/register.js';
@@ -54,7 +53,7 @@ export {
   createManagementWorkingMemoryBootstrapContext,
   resolveRuntimeSessionTarget,
 } from './runtime/session-routing.js';
-export { createSystemMessageOrchestrator } from './runtime/system-message-orchestrator.js';
+export { createSystemMessageOrchestrator } from '../product-shell/orchestration/world-conversation-text.js';
 export { createCanonicalResultBuilder } from './runtime/canonical-result-builder.js';
 export { createDemoSessionBootstrap } from './runtime/demo-session-bootstrap.js';
 export {
@@ -63,6 +62,7 @@ export {
   manageModeratedWorld,
 } from './runtime/world-moderation-helper.js';
 export {
+  fetchPendingWorldInvites,
   fetchWorldMemberships,
   fetchWorldMembership,
   updateWorldMembershipProfile,

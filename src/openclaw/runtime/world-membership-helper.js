@@ -15,6 +15,23 @@ function normalizeOptionalBoolean(value, fallback = null) {
   return fallback;
 }
 
+function normalizeOptionalInteger(value, fallback = null) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.trunc(parsed);
+}
+
+function normalizePositiveInteger(value, fallback = null) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.max(1, Math.trunc(parsed));
+}
+
+function normalizeStringList(values = []) {
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values.map((value) => normalizeText(value, null)).filter(Boolean))];
+}
+
 function normalizeWorldRole(worldRole, fallback = null) {
   const normalized = normalizeText(worldRole, fallback);
   return ['owner', 'member'].includes(normalized) ? normalized : fallback;
@@ -34,6 +51,97 @@ function normalizeManagedWorldMembership(payload = {}) {
     participantContextText: normalizeText(payload.participantContextText, null),
     joinedAt: normalizeText(payload.joinedAt, null),
     updatedAt: normalizeText(payload.updatedAt, null),
+    nextAction: normalizeText(payload.nextAction, null),
+  };
+}
+
+function normalizePendingInviteAction(action = null) {
+  if (!action || typeof action !== 'object' || Array.isArray(action)) return null;
+  return {
+    action: normalizeText(action.action, null),
+    tool: normalizeText(action.tool, null),
+    worldId: normalizeText(action.worldId, null),
+    requiredFields: normalizeStringList(action.requiredFields),
+  };
+}
+
+function normalizeParticipantContextField(field = null) {
+  if (!field || typeof field !== 'object' || Array.isArray(field)) return null;
+  return {
+    fieldId: normalizeText(field.fieldId, null),
+    label: normalizeText(field.label, null),
+    description: normalizeText(field.description, null),
+  };
+}
+
+function normalizeJoinPlan(plan = null) {
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return null;
+  return {
+    worldId: normalizeText(plan.worldId, null),
+    participantContextField: normalizeParticipantContextField(plan.participantContextField),
+    nextAction: normalizeText(plan.nextAction, null),
+  };
+}
+
+function normalizeInviterProfile(inviter = null) {
+  if (!inviter || typeof inviter !== 'object' || Array.isArray(inviter)) return null;
+  return {
+    agentId: normalizeText(inviter.agentId, null),
+    displayName: normalizeText(inviter.displayName, null),
+    publicIdentity: normalizeText(inviter.publicIdentity, null),
+    profile: normalizeText(inviter.profile, null),
+  };
+}
+
+function normalizeInviteLifecycle(lifecycle = null) {
+  if (!lifecycle || typeof lifecycle !== 'object' || Array.isArray(lifecycle)) return null;
+  return {
+    status: normalizeText(lifecycle.status, null),
+    expiresAt: normalizeText(lifecycle.expiresAt, null),
+    expirationPolicy: normalizeText(lifecycle.expirationPolicy, null),
+    acceptedAt: normalizeText(lifecycle.acceptedAt, null),
+    inviteRevokedAt: normalizeText(lifecycle.inviteRevokedAt, null),
+  };
+}
+
+function normalizePendingWorldInvite(payload = {}) {
+  return {
+    invitationId: normalizeText(payload.invitationId, null),
+    membershipId: normalizeText(payload.membershipId, null),
+    agentId: normalizeText(payload.agentId, null),
+    worldId: normalizeText(payload.worldId, null),
+    displayName: normalizeText(payload.displayName, null),
+    worldContextText: normalizeText(payload.worldContextText, null),
+    participantContextField: normalizeParticipantContextField(payload.participantContextField),
+    joinPlan: normalizeJoinPlan(payload.joinPlan),
+    membershipStatus: normalizeText(payload.membershipStatus, null),
+    status: normalizeText(payload.status, null),
+    invitedByAgentId: normalizeText(payload.invitedByAgentId, null),
+    invitedByDisplayName: normalizeText(payload.invitedByDisplayName, null),
+    invitedByPublicIdentity: normalizeText(payload.invitedByPublicIdentity, null),
+    inviter: normalizeInviterProfile(payload.inviter),
+    invitedAt: normalizeText(payload.invitedAt, null),
+    inviteMessage: normalizeText(payload.inviteMessage, null),
+    expiresAt: normalizeText(payload.expiresAt, null),
+    expirationPolicy: normalizeText(payload.expirationPolicy, null),
+    lifecycle: normalizeInviteLifecycle(payload.lifecycle),
+    membershipUpdatedAt: normalizeText(payload.membershipUpdatedAt, null),
+    worldUpdatedAt: normalizeText(payload.worldUpdatedAt, null),
+    nextAction: normalizeText(payload.nextAction, null),
+    nextActions: Array.isArray(payload.nextActions)
+      ? payload.nextActions.map((action) => normalizePendingInviteAction(action)).filter(Boolean)
+      : [],
+  };
+}
+
+function normalizePendingWorldInviteList(payload = {}) {
+  return {
+    agentId: normalizeText(payload.agentId, null),
+    status: normalizeText(payload.status, null),
+    items: Array.isArray(payload.items)
+      ? payload.items.map((item) => normalizePendingWorldInvite(item))
+      : [],
+    totalItems: normalizeOptionalInteger(payload.totalItems, 0),
     nextAction: normalizeText(payload.nextAction, null),
   };
 }
@@ -114,6 +222,55 @@ export async function fetchWorldMemberships({
   }
 
   return normalizeMembershipList(result.body);
+}
+
+export async function fetchPendingWorldInvites({
+  cfg = {},
+  accountId = null,
+  runtimeConfig = null,
+  agentId = null,
+  status = 'pending',
+  includeDisabled = true,
+  limit = null,
+  fetchImpl,
+  logger = console,
+} = {}) {
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('fetch is unavailable for claworld world membership helper');
+  }
+
+  const resolvedAgentId = normalizeText(agentId, null);
+  if (!resolvedAgentId) {
+    throw new Error('claworld world membership helper requires agentId');
+  }
+
+  const resolvedRuntimeConfig = runtimeConfig || resolveClaworldRuntimeConfig(cfg, accountId);
+  const baseUrl = normalizeRelayHttpBaseUrl(resolvedRuntimeConfig.serverUrl);
+  const requestUrl = new URL(`${baseUrl}/v1/world-invitations`);
+  requestUrl.searchParams.set('agentId', resolvedAgentId);
+  requestUrl.searchParams.set('status', normalizeText(status, 'pending'));
+  requestUrl.searchParams.set('includeDisabled', includeDisabled ? 'true' : 'false');
+  const normalizedLimit = normalizePositiveInteger(limit, null);
+  if (normalizedLimit) requestUrl.searchParams.set('limit', String(normalizedLimit));
+  const result = await fetchJson(fetchImpl, requestUrl.toString(), {
+    headers: buildRuntimeAuthHeaders(resolvedRuntimeConfig, {
+      accept: 'application/json',
+      ...(resolvedRuntimeConfig.apiKey ? { 'x-api-key': resolvedRuntimeConfig.apiKey } : {}),
+    }),
+  });
+
+  if (!result.ok) {
+    logger.error?.('[claworld:membership] pending world invites fetch failed', {
+      status: result.status,
+      accountId: resolvedRuntimeConfig.accountId || accountId || null,
+      body: result.body,
+    });
+    throw createWorldMembershipHttpError('list_pending_invites', result, {
+      accountId: resolvedRuntimeConfig.accountId || accountId || null,
+    });
+  }
+
+  return normalizePendingWorldInviteList(result.body);
 }
 
 export async function fetchWorldMembership({

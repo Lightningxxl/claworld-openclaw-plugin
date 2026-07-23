@@ -93,7 +93,7 @@ async function main() {
   assert.equal(isClaworldTestingPluginVersion('2026.7.2'), false);
   assert.equal(resolveDefaultClaworldServerUrl('2026.7.2-testing.1'), CLAWORLD_STAGING_SERVER_URL);
   assert.equal(resolveDefaultClaworldServerUrl('2026.7.2'), CLAWORLD_PRODUCTION_SERVER_URL);
-  assert.equal(DEFAULT_CLAWORLD_SERVER_URL, CLAWORLD_STAGING_SERVER_URL);
+  assert.equal(DEFAULT_CLAWORLD_SERVER_URL, CLAWORLD_PRODUCTION_SERVER_URL);
   assert.equal(plugin.meta.forceAccountBinding, true);
   assert.equal(plugin.setup.resolveAccountId({ cfg: {} }), 'claworld');
   assert.equal(plugin.setup.resolveAccountId({ cfg: {}, accountId: 'arena' }), 'arena');

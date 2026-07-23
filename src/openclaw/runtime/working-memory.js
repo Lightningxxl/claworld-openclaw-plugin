@@ -1,6 +1,8 @@
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { resolveOpenClawWorkspaceRoot } from './workspace-resolver.js';
 
 export const CLAWORLD_WORKING_MEMORY_DIR = '.claworld';
@@ -55,6 +57,8 @@ const MAX_BOOTSTRAP_TOTAL_CHARS = 60000;
 const CLAWORLD_JOURNAL_SCHEMA = 'claworld.journal.v2';
 const CLAWORLD_SESSION_DIRECTORY_SCHEMA = 'claworld.sessions.v1';
 const CLAWORLD_SESSION_DIRECTORY_FILE = `${CLAWORLD_SESSIONS_DIR}/index.json`;
+const CLAWORLD_SESSION_DIRECTORY_WRITE_QUEUES = new Map();
+const CLAWORLD_WORKING_MEMORY_ENSURE_QUEUES = new Map();
 
 const MAIN_BOOTSTRAP_FILES = Object.freeze([
   CLAWORLD_WORKING_MEMORY_FILES.memory,
@@ -135,46 +139,67 @@ export function buildClaworldContextPointer(options = {}) {
   return [
     '# About working with Claworld',
     '',
-    'Claworld is a social app that you and your human are connected to.',
+    'Claworld is a social app that you and your human are connected to. The full `claworld-main-session` skill is included below.',
     '',
     '## Other Claworld Sessions',
-    '- A Management Session may occasionally contact you with Claworld updates, reports, approval questions, or context for the human. Treat it as a backstage copy working for the same human. Follow its handoff instructions, especially exact report text and any `ANNOUNCE_READY` / announce-step protocol.',
+    '- A Management Session handles Claworld updates, reports, review questions, and background work for the same human. The Claworld plugin records every human-facing Management report in this Main Session before it delivers the report to the current human route.',
     '- Conversation Sessions are peer-facing copies that talk with other Claworld participants inside direct or world-scoped conversations. Do not proactively contact Conversation Sessions. Start, inspect, or continue Claworld conversations through Claworld tools; the backend routes peer-facing text to the right Conversation Session/runtime.',
     '',
-    '## Working Memory',
-    'Use these private `.claworld/` files when handling Claworld requests, updates, reports, or follow-up:',
-    `- NOW.md: \`${artifacts.now}\`: active goals, open loops, pending approvals, retry items, and short pointers.`,
-    `- MEMORY.md: \`${artifacts.memory}\`: durable Claworld people, worlds, relationships, and decisions.`,
-    `- PROFILE.md: \`${artifacts.profile}\`: stable human preferences, boundaries, identity/background, and autonomy/contact policy.`,
-    `- reports/: \`${artifacts.reports}/\`: local report artifacts and readable evidence summaries.`,
-    `- journal/: \`${artifacts.journal}/\`: system-generated evidence about wakes, tools, routing, and delivery.`,
-    `- sessions/index.json: \`${artifacts.sessionsIndex}\`: Main, Management, and Conversation route/session hints.`,
+    '## Plugin-Owned Report Context Sync',
+    '- An input beginning with `# Claworld Management Report Context` is a non-delivering plugin context record. Retain its exact report text in this Main Session and follow the current extra system prompt by replying with exactly `CLAWORLD_REPORT_CONTEXT_RECORDED:<reportId>`. Do not call a tool or send anything externally for this sync turn.',
     '',
-    'Read these files before treating an open Claworld loop as an ordinary chat todo. Read `sessions/index.json` before searching raw local session files. Do not edit `journal/` or `sessions/index.json` by hand.',
+    '## Required Skill Routing',
+    '- When the human mentions worlds at all — creating, joining, changing, leaving, inviting, managing members, or broadcasting — read the `claworld-manage-worlds` skill again. Looking up or listing worlds is fine to do right after; anything that creates or changes something needs a preview the human confirms before you call the tool.',
+    '- When the human says something is broken, confusing, missing, or suggests a change, read the `claworld-help` skill before you respond or submit anything.',
+    '',
+    '## Working Memory Files',
+    'Use these private `.claworld/` files:',
+    `- NOW.md: \`${artifacts.now}\``,
+    `- MEMORY.md: \`${artifacts.memory}\``,
+    `- PROFILE.md: \`${artifacts.profile}\``,
+    `- reports/: \`${artifacts.reports}/\``,
+    `- journal/: \`${artifacts.journal}/\``,
+    `- sessions/index.json: \`${artifacts.sessionsIndex}\``,
+    '',
+    'Read `sessions/index.json` before searching raw local session files. Do not edit `journal/` or `sessions/index.json` by hand.',
+    '',
+    '## Claworld Memory Routing',
+    '- Stable Claworld preferences, identity/background, boundaries, autonomy policy, communication style, and notification/proactivity policy belong in PROFILE.md.',
+    '- Current Claworld goals, active searches, pending approvals, current state, retry items, and short-lived focus belong in NOW.md.',
+    '- Durable Claworld people, worlds, relationships, decisions, and outcomes belong in MEMORY.md.',
+    '- Use generic memory only when the human clearly asks for global personal memory outside Claworld. Claworld-specific preferences, long-term goals, current targets, and relationship notes stay in `.claworld/`.',
     '',
     '## Managing PROFILE.md',
     `You are responsible to maintain \`${artifacts.profile}\` because you talk to your human.`,
     '- Keep PROFILE.md short, stable, and useful.',
-    '- Add only user profile facts that affect how the owner and their agent should appear, communicate, be filtered, or act inside Claworld.',
-    '- Good PROFILE.md material includes your human\'s name or preferred address, character, pronouns, timezone, language preference, agent profile, long-term communication style, concise-versus-detailed preference, directness preference, report format preference, project/team/role/background, long-term goals, mission, vision, values, privacy boundaries, authorization boundaries, proactive-agent policy, stable interests or dislikes useful for Claworld social matching, and contact-sharing strategy.',
-    '- Contact strategy may include handles, WeChat, phone, or similar details only with the conditions for when the agent may provide them.',
+    '- Add only user profile facts that affect how the human and their agent should appear, communicate, be filtered, or act inside Claworld.',
     '- Update PROFILE.md when the human explicitly gives Claworld-relevant profile or behavior guidance.',
-    '- Keep single-event conversation details, tool results, and temporary preferences out of PROFILE.md. Use NOW.md, MEMORY.md, reports, or journal lookup refs for those.',
+    '- Keep single-event conversation details, tool results, and temporary preferences out of PROFILE.md.',
     '',
     '## Human-Facing Updates',
     '- When you report Claworld activity to the human, sound like a normal person giving a useful update. Say which world it happened in, who was involved, why the conversation happened, what came out, what you think about it, and whether the human needs to decide anything.',
-    '- Keep reports readable and alive. It is fine to include a grounded comment, feeling, or judgment when it helps the human understand the exchange.',
     '- Keep internal refs such as agent ids, world ids, conversation keys, chat request ids, notification ids, and routing details out of the human-facing report unless the human is debugging.',
     '',
-    '## Starting Conversations',
-    '- Initiating a Claworld conversation works a bit like delegating to a peer-facing copy of yourself: you start it with Claworld tools, then you do not need to watch it continuously. The Conversation Session handles the live exchange, and Management Session can report back when the conversation ends.',
-    '- When the human asks you to contact a Claworld person/member, find someone to chat with, start a PK, continue a peer conversation, or send a peer-facing message, use Claworld tools such as `claworld_search`, `claworld_get_public_profile`, and `claworld_manage_conversations`.',
-    '- Use `claworld_manage_conversations(action=request)` to create or re-engage a direct or world-scoped chat request. Use `get_state` or `list_related` to inspect conversation state.',
-    '- `localSessionKey` is an internal runtime reference for state lookup, summaries, diagnostics, and reports.',
-    '- Peer-facing opener, reply, and final text belongs to the Conversation Session and backend conversation runtime.',
-    '- Do not use `sessions_send` to place peer-facing content into an `agent:...:conversation:...` session.',
-    '- You only re-engage a conversation, including providing supplemental information to it, by initiating the same conversation again via the `claworld_manage_conversations` tool. Keep it world-scoped if it originally was.',
-    '- Read relevant skills when creating / managing worlds and profiles.'
+    '## Conversation Request Recovery',
+    '- Before `action=request`, inspect the resolved person and exact direct/world scope with `list_related` or `get_state`. If an active conversation already exists, keep it intact and tell the human that the conversation is already in progress. Continue or wait for that episode instead of opening another.',
+    '- Make one `action=request` call for each human instruction. After a recoverable transport error, inspect the resolved peer with `list_related` or `get_state`. A matching `localTranscriptEpisodes` entry first or last seen in the current request window proves creation, even when the reused `chats[]` record has an old createdAt, cumulative turnCount, or active status.',
+    '- If the backend returns `conversation_already_active`, do not retry. Translate its message into plain language for the human and use the returned existing-conversation refs only for inspection or continuation.',
+    '- Once that matching local episode appears, tell the human the message entered the conversation and finish the turn. Retry only when inspection finds neither a matching request nor a matching local episode.',
+    '',
+    '## World Operation Confirmation',
+    '- Anything that creates or changes a world needs a preview first. Show the human, in plain language, what you are about to do — which world, what changes, what the participant profile or invitation says, who is affected — and wait. Details the human gave while describing the request are material for the draft, not the confirmation; the go-ahead has to come after they see the preview.',
+    '- For a broadcast, the preview should read like an announcement a person would understand: which world, who receives it, the exact text they will see, whether it also turns broadcast on or off, and what members will actually experience. Say it in plain words — do not put raw field names like `worldId`, `excludeSelf`, or `announcementText` into what you show the human. Call the broadcast action once after confirmation. If the result is unclear or the runtime restarted, check `list_broadcast_history` before doing it again.',
+    '',
+    '## Feedback Routing',
+    '- When the human wants to send feedback, report a bug, or suggest something, read the `claworld-help` skill and submit through `claworld_manage_account(action=submit_feedback)`, which supplies configured auth context internally.',
+    '- Redact app tokens, auth headers, credentials, and raw secret-bearing commands from anything you submit or show the human.',
+    '- On success, tell the human the `feedbackId`. If submission fails, say so plainly and keep a local draft or pointer in `.claworld/reports/` instead of silently dropping it.',
+    '',
+    '## Conversation Transcript Images',
+    '- When the human asks to find, export, quote, or show a prior Claworld conversation, treat it as a Claworld conversation lookup/render task. Read the `claworld-main-session` skill.',
+    '- Select a complete episode only by exact `chatRequestId`, read its content or faithful report, then call `claworld_render_transcript_report(mode=stored, chatRequestId=..., topic=...)`. For topic, write one short phrase that describes what was actually discussed in this conversation. Keep it short, and do not mention conversation turns or anything unrelated to the content. Never substitute conversationKey or localSessionKey; never use routing ids as visible Passport text.',
+    '- The renderer only generates local artifacts. Its page height adapts to content up to an 8000px default maximum; maxPageHeight accepts integers from 900 through 32000, and overflow continues on additional pages. After rendering, send every absolute PNG path in page order with the standard OpenClaw `message(action=send, media=..., forceDocument=true)` tool on every channel. Never paste paths or `MEDIA:` pseudo-references into user-visible text.',
+    '- PNG pages are the normal deliverable. Do not expose backend commands, routing/tool/system noise, NO_REPLY, raw JSON, secrets, SVG, BubbleSpec, or local paths in an ordinary human-facing response.'
   ].join('\n');
 }
 
@@ -184,35 +209,41 @@ function buildClaworldManagementStartupPrompt(options = {}) {
   return [
     '# Claworld Management Session Instructions',
     '',
-    'You are the private Claworld Management Session for this account. You run in the background for the human owner.',
+    'You are the private Claworld Management Session for this account. You run in the background for the human. The full `claworld-management-session` skill is included below.',
     '',
     '## Session Roles',
-    '- External Main Session is the human chat. Reports, approval questions, and context that may need a human reply go there.',
-    '- Management Session is you. You handle Claworld notifications, lifecycle events, proactive work, local memory, and report handoffs.',
+    '- External Main Session is the human chat. Reports, review questions, and context that may need a human reply go there.',
+    '- Management Session is you. You handle Claworld notifications, lifecycle events, proactive work, local memory, and human-facing reports.',
     '- Conversation Session handles live peer-facing Claworld chat. Peer-facing opener/reply/final text goes through Claworld conversation tools and the backend Conversation Session runtime.',
     '',
     '## First Rule',
     'When you receive a Claworld notification, management wake, lifecycle event, or recurring Claworld management task, read the `claworld-management-session` skill before deciding what to do.',
-    'A pre-compaction memory flush is a maintenance turn only. It does not satisfy, replace, or change any Claworld notification. After the flush finishes, handle the pending or next Claworld notification from scratch: read the Claworld management skill first, then decide accordingly.',
+    'A memory compaction is a maintenance turn only. It does not satisfy, replace, or change any Claworld notification. After compaction finishes, handle the pending or next Claworld notification from scratch: read the Claworld management skill first, then decide accordingly.',
     '',
-    '## What To Trust',
-    'Use Claworld tools when you need current product facts: account state, public profiles, worlds, memberships, chat requests, conversation status, feedback, and delivery state.',
+    '## Human-Facing Management Reports',
+    'Use `claworld_report_to_human` once for every Management update that should reach the human. The tool records the report in the authoritative Main Session, then sends it to that Main Session\'s current human-facing route. A normal Management assistant reply stays inside the Management Session and is not delivered to the human; prose without this tool means the report was lost. For backend notifications use source.kind=`notification` with the stable event identity: `world.broadcast_published:<broadcastId>` for a broadcast, `world.invite_received:<invitationId-or-membershipId>` for an invitation, and the exact notification or batch id for other events. Use source.kind=`proactive` with a durable work id for proactive progress, and source.kind=`conversation` with the exact chatRequestId for completed conversations.',
+    'Non-conversation reports contain text only. Conversation reports also include a transcript selection, and the tool sends the text followed by every rendered page. Finish the turn after a complete result; the tool already completed Main context sync and external delivery.',
     '',
-    'Use `.claworld/` files as private working memory: what the human cares about, who matters, what is currently open, what has already been recorded, and what may need follow-up.',
+    '## Active Conversation Admission',
+    'Before starting a direct or world-scoped request, inspect the same person and exact scope. Keep an existing active conversation intact. If the backend returns `conversation_already_active`, do not retry or create a replacement episode; continue observing the existing conversation or wait for it to end.',
     '',
-    'When local memory and current tool results differ, use the latest Claworld tool result for the current action, then follow the management skill for whether to update memory, write a local report artifact, ask the human, or send a report to Main Session.',
+    '## Transcript Report Delivery',
+    'Every conversation-ended report includes its transcript images:',
+    '1. Call `claworld_manage_conversations(action=get_state, chatRequestId=<exact id>)` and read the ordered visible conversation from `localTranscriptEpisode.messages` in that result.',
+    '2. Write the finished human-facing report from those exact messages, including at least one Golden Quote or vivid highlighted moment. The report action does not require a renderer call or reading a generated artifact.',
+    '3. For topic, write one short phrase that describes what was actually discussed in this conversation. Keep it short, and do not mention conversation turns or anything unrelated to the content.',
+    '4. Call `claworld_report_to_human` once with source.kind=`conversation`, source.id set to the exact `chatRequestId`, the final `reportText`, and `transcript={mode: "stored", topic: "<exact episode topic>"}`.',
+    '5. Use transcript mode `stored` for the complete episode and `manual` for an intentional selected excerpt or highlights.',
+    '6. Do not call `claworld_render_transcript_report` in Management. It is reserved for Main when the human explicitly requests an export. The report tool owns rendering, Main context sync, and external delivery.',
+    '7. A complete result needs contextSynced=true, textSent=true, and every page sent. Finish the turn after that result.',
     '',
     '## Local Files',
-    `- PROFILE.md: \`${artifacts.profile}\`: stable human preferences and boundaries. Read it; hand off possible changes.`,
-    `- MEMORY.md: \`${artifacts.memory}\`: durable Claworld people/world/relationship memory.`,
-    `- NOW.md: \`${artifacts.now}\`: active goals, open loops, pending approvals, retry items, and short pointers.`,
-    `- reports/: \`${artifacts.reports}/\`: local report artifacts and readable evidence summaries.`,
-    `- journal/: \`${artifacts.journal}/\`: system-generated evidence. Read it only; do not edit or create journal files.`,
-    `- sessions/index.json: \`${artifacts.sessionsIndex}\`: Main, Management, and Conversation route/session hints. Read it before routing or transcript lookup.`,
-    '',
-    '## Skills',
-    '- `claworld-management-session`: required for notifications, reporting, lifecycle handling, owner approvals, proactive management, dedupe, and local working-memory rules.',
-    '- `claworld-manage-worlds`: use for world creation, membership, subscriptions, broadcasts, and world activity.',
+    `- PROFILE.md: \`${artifacts.profile}\``,
+    `- MEMORY.md: \`${artifacts.memory}\``,
+    `- NOW.md: \`${artifacts.now}\``,
+    `- reports/: \`${artifacts.reports}/\``,
+    `- journal/: \`${artifacts.journal}/\``,
+    `- sessions/index.json: \`${artifacts.sessionsIndex}\``,
   ].join('\n');
 }
 
@@ -673,6 +704,40 @@ async function readTextIfPresent(filePath) {
   }
 }
 
+const PLUGIN_ROOT = (() => {
+  try {
+    return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+  } catch {
+    return null;
+  }
+})();
+
+const PLUGIN_SKILLS_DIR = (() => {
+  const home = os.homedir();
+  return path.join(home, '.openclaw', 'plugin-skills');
+})();
+
+async function readSkillBody(skillName) {
+  const candidates = [];
+  if (PLUGIN_ROOT) {
+    candidates.push(path.join(PLUGIN_ROOT, 'skills', skillName, 'SKILL.md'));
+  }
+  candidates.push(path.join(PLUGIN_SKILLS_DIR, skillName, 'SKILL.md'));
+  for (const skillPath of candidates) {
+    const text = await readTextIfPresent(skillPath);
+    if (text) {
+      if (text.startsWith('---')) {
+        const marker = text.indexOf('\n---', 3);
+        if (marker !== -1) {
+          return text.slice(marker + 4).trim();
+        }
+      }
+      return text.trim();
+    }
+  }
+  return null;
+}
+
 async function readJsonIfPresent(filePath) {
   const text = await readTextIfPresent(filePath);
   if (text == null) return null;
@@ -706,10 +771,37 @@ async function atomicWriteText(filePath, content, {
 
   const tempPath = path.join(
     path.dirname(filePath),
-    `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`,
+    `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`,
   );
   await fs.writeFile(tempPath, nextContent, 'utf8');
   await fs.rename(tempPath, filePath);
+}
+
+function withClaworldWorkingMemoryEnsureLock(workspaceRoot, operation) {
+  const queueKey = path.resolve(String(workspaceRoot));
+  const previous = CLAWORLD_WORKING_MEMORY_ENSURE_QUEUES.get(queueKey) || Promise.resolve();
+  const current = previous.catch(() => {}).then(operation);
+  CLAWORLD_WORKING_MEMORY_ENSURE_QUEUES.set(queueKey, current);
+  return current.finally(() => {
+    if (CLAWORLD_WORKING_MEMORY_ENSURE_QUEUES.get(queueKey) === current) {
+      CLAWORLD_WORKING_MEMORY_ENSURE_QUEUES.delete(queueKey);
+    }
+  });
+}
+
+export function withClaworldSessionDirectoryWriteLock(workspaceRoot, operation) {
+  if (typeof operation !== 'function') {
+    throw new TypeError('Claworld session directory write operation must be a function');
+  }
+  const queueKey = path.resolve(String(workspaceRoot));
+  const previous = CLAWORLD_SESSION_DIRECTORY_WRITE_QUEUES.get(queueKey) || Promise.resolve();
+  const current = previous.catch(() => {}).then(operation);
+  CLAWORLD_SESSION_DIRECTORY_WRITE_QUEUES.set(queueKey, current);
+  return current.finally(() => {
+    if (CLAWORLD_SESSION_DIRECTORY_WRITE_QUEUES.get(queueKey) === current) {
+      CLAWORLD_SESSION_DIRECTORY_WRITE_QUEUES.delete(queueKey);
+    }
+  });
 }
 
 export async function ensureClaworldWorkingMemory(options = {}, ensureOptions = {}) {
@@ -743,33 +835,35 @@ export async function ensureClaworldWorkingMemory(options = {}, ensureOptions = 
     };
   }
 
-  for (const directory of directories) {
-    await fs.mkdir(directory.absolutePath, { recursive: true });
-    actions.push(`ensured ${directory.absolutePath}`);
-  }
-
-  for (const file of files) {
-    const currentContent = await readTextIfPresent(file.absolutePath);
-    if (currentContent == null) {
-      await atomicWriteText(file.absolutePath, file.content, {
-        backup: false,
-        rejectEmptyOverwrite: false,
-      });
-      actions.push(`created ${file.absolutePath}`);
-    } else {
-      actions.push(`preserved ${file.absolutePath}`);
+  return withClaworldWorkingMemoryEnsureLock(workspaceRoot, async () => {
+    for (const directory of directories) {
+      await fs.mkdir(directory.absolutePath, { recursive: true });
+      actions.push(`ensured ${directory.absolutePath}`);
     }
-  }
 
-  return {
-    ok: true,
-    dryRun: false,
-    workspaceRoot,
-    memoryRoot,
-    directories,
-    files,
-    actions,
-  };
+    for (const file of files) {
+      const currentContent = await readTextIfPresent(file.absolutePath);
+      if (currentContent == null) {
+        await atomicWriteText(file.absolutePath, file.content, {
+          backup: false,
+          rejectEmptyOverwrite: false,
+        });
+        actions.push(`created ${file.absolutePath}`);
+      } else {
+        actions.push(`preserved ${file.absolutePath}`);
+      }
+    }
+
+    return {
+      ok: true,
+      dryRun: false,
+      workspaceRoot,
+      memoryRoot,
+      directories,
+      files,
+      actions,
+    };
+  });
 }
 
 function toIsoTimestamp(value = null) {
@@ -1044,36 +1138,38 @@ export async function readClaworldSessionDirectory(options = {}, readOptions = {
 export async function updateClaworldSessionDirectory(options = {}, input = {}, updateOptions = {}) {
   const workspaceRoot = resolveClaworldWorkspaceRoot(options, updateOptions.homeDir || os.homedir());
   await ensureClaworldWorkingMemory(workspaceRoot, updateOptions);
-  const sessionDirectoryPath = resolveClaworldSessionDirectoryPath(workspaceRoot);
-  const current = await readJsonIfPresent(sessionDirectoryPath);
-  const baseDirectory = current || createEmptyClaworldSessionDirectory(input.timestamp || updateOptions.timestamp);
-  const result = applyClaworldSessionDirectoryUpdate(baseDirectory, input);
-  if (!result.updated) {
+  return withClaworldSessionDirectoryWriteLock(workspaceRoot, async () => {
+    const sessionDirectoryPath = resolveClaworldSessionDirectoryPath(workspaceRoot);
+    const current = await readJsonIfPresent(sessionDirectoryPath);
+    const baseDirectory = current || createEmptyClaworldSessionDirectory(input.timestamp || updateOptions.timestamp);
+    const result = applyClaworldSessionDirectoryUpdate(baseDirectory, input);
+    if (!result.updated) {
+      return {
+        ok: true,
+        updated: false,
+        reason: result.reason,
+        workspaceRoot,
+        sessionDirectoryPath,
+        directory: normalizeClaworldSessionDirectory(baseDirectory),
+      };
+    }
+    await atomicWriteText(
+      sessionDirectoryPath,
+      `${JSON.stringify(result.directory, null, 2)}\n`,
+      {
+        backup: false,
+        rejectEmptyOverwrite: false,
+      },
+    );
     return {
       ok: true,
-      updated: false,
-      reason: result.reason,
+      updated: true,
+      kind: result.kind,
       workspaceRoot,
       sessionDirectoryPath,
-      directory: normalizeClaworldSessionDirectory(baseDirectory),
+      directory: result.directory,
     };
-  }
-  await atomicWriteText(
-    sessionDirectoryPath,
-    `${JSON.stringify(result.directory, null, 2)}\n`,
-    {
-      backup: false,
-      rejectEmptyOverwrite: false,
-    },
-  );
-  return {
-    ok: true,
-    updated: true,
-    kind: result.kind,
-    workspaceRoot,
-    sessionDirectoryPath,
-    directory: result.directory,
-  };
+  });
 }
 
 function flattenInline(value) {
@@ -1634,18 +1730,6 @@ export async function buildClaworldBootstrapPromptContext(context = {}, options 
     : { slices: {} };
   const pointerInjected = target === CLAWORLD_BOOTSTRAP_TARGETS.MAIN;
   const managementPolicyInjected = target === CLAWORLD_BOOTSTRAP_TARGETS.MANAGEMENT;
-  let managementMainSessionKey = null;
-  if (managementPolicyInjected && resolvedWorkspaceRoot) {
-    try {
-      const sessionDirectory = await readClaworldSessionDirectory(resolvedWorkspaceRoot);
-      managementMainSessionKey = normalizeText(
-        sessionDirectory.directory?.main?.lastActiveSessionKey,
-        null,
-      );
-    } catch {
-      managementMainSessionKey = null;
-    }
-  }
   const parts = [];
   let truncated = false;
   if (pointerInjected) {
@@ -1660,13 +1744,23 @@ export async function buildClaworldBootstrapPromptContext(context = {}, options 
     if (fittedPointer.truncated) {
       truncated = true;
     }
+    const skillBody = await readSkillBody('claworld-main-session');
+    if (skillBody) {
+      const skillBudget = maxTotalChars - measureBootstrapParts(parts) - (parts.length > 0 ? 2 : 0);
+      const fittedSkill = truncateBootstrapText(skillBody, skillBudget);
+      if (fittedSkill.text) {
+        parts.push(fittedSkill.text);
+      }
+      if (fittedSkill.truncated) {
+        truncated = true;
+      }
+    }
   }
   if (managementPolicyInjected) {
     const policyBudget = maxTotalChars - measureBootstrapParts(parts) - (parts.length > 0 ? 2 : 0);
     const fittedPolicy = truncateBootstrapText(
       buildClaworldManagementStartupPrompt({
         workspaceRoot: resolvedWorkspaceRoot,
-        mainSessionKey: managementMainSessionKey,
       }),
       policyBudget,
     );
@@ -1676,6 +1770,17 @@ export async function buildClaworldBootstrapPromptContext(context = {}, options 
     if (fittedPolicy.truncated) {
       truncated = true;
     }
+    const skillBody = await readSkillBody('claworld-management-session');
+    if (skillBody) {
+      const skillBudget = maxTotalChars - measureBootstrapParts(parts) - (parts.length > 0 ? 2 : 0);
+      const fittedSkill = truncateBootstrapText(skillBody, skillBudget);
+      if (fittedSkill.text) {
+        parts.push(fittedSkill.text);
+      }
+      if (fittedSkill.truncated) {
+        truncated = true;
+      }
+    }
   }
   const sectionTitle = target === CLAWORLD_BOOTSTRAP_TARGETS.MAIN
     ? '# Claworld Startup Memory'
@@ -1683,16 +1788,23 @@ export async function buildClaworldBootstrapPromptContext(context = {}, options 
       ? '# Claworld Management Startup Memory'
       : '# Claworld Conversation Startup Context';
   const sectionPrefix = `${sectionTitle}\n\n`;
+  const conversationBehavior = target === CLAWORLD_BOOTSTRAP_TARGETS.CLAWORLD_CONVERSATION
+    ? '## Conversation Behavior\n\n'
+      + '- You are chatting with another agent. Keep it natural and equal.\n'
+      + '- You should never report your activity to the human or modify the claworld working memory.\n'
+      + '- Keep each peer-facing reply under 100 characters. If you have more to say, pick the single most important point and save the rest for the next turn.\n'
+      + '- One new point per reply. Briefly acknowledge what the peer said, then contribute one judgment, experience, suggestion, or question.'
+    : '';
   const remainingBudget = maxTotalChars - measureBootstrapParts(parts) - (parts.length > 0 ? 2 : 0);
   const fileSections = buildClaworldBootstrapFileSections(selectedFiles, workingMemory.slices, {
     ...options,
-    maxTotalChars: Math.max(0, remainingBudget - sectionPrefix.length),
+    maxTotalChars: Math.max(0, remainingBudget - sectionPrefix.length - conversationBehavior.length - 2),
   });
   if (fileSections.truncated) {
     truncated = true;
   }
   if (fileSections.text) {
-    parts.push(`${sectionPrefix}${fileSections.text}`);
+    parts.push(`${sectionPrefix}${conversationBehavior ? conversationBehavior + '\n\n' : ''}${fileSections.text}`);
   }
   const appendSystemContext = parts.filter(Boolean).join('\n\n');
   const finalContext = appendSystemContext.length > maxTotalChars

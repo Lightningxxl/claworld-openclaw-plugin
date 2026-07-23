@@ -101,6 +101,10 @@ function buildMemoryFixture(memory = '- none') {
   ].join('\n');
 }
 
+function markdownHeadings(text) {
+  return text.split('\n').filter((line) => /^#{1,4} /u.test(line));
+}
+
 async function main() {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'claworld-working-memory-'));
   try {
@@ -137,13 +141,177 @@ async function main() {
     assert.ok(pointer.includes('Claworld is a social app that you and your human are connected to'));
     assert.ok(pointer.includes('## Other Claworld Sessions'));
     assert.ok(pointer.includes('Do not proactively contact Conversation Sessions'));
-    assert.ok(pointer.includes('Read these files before treating an open Claworld loop as an ordinary chat todo'));
+    assert.ok(pointer.includes('## Required Skill Routing'));
+    assert.ok(pointer.includes('read the `claworld-manage-worlds` skill again'));
+    assert.ok(pointer.includes('read the `claworld-help` skill'));
     assert.ok(pointer.includes('Read `sessions/index.json` before searching raw local session files'));
-    assert.ok(pointer.includes('## Starting Conversations'));
-    assert.ok(pointer.includes('delegating to a peer-facing copy of yourself'));
-    assert.ok(pointer.includes('claworld_manage_conversations(action=request)'));
-    assert.ok(pointer.includes('localSessionKey` is an internal runtime reference'));
-    assert.ok(pointer.includes('Do not use `sessions_send` to place peer-facing content'));
+    assert.ok(pointer.includes('## Claworld Memory Routing'));
+    assert.ok(pointer.includes('Stable Claworld preferences'));
+    assert.ok(pointer.includes('Current Claworld goals'));
+    assert.ok(pointer.includes('Durable Claworld people'));
+    assert.ok(pointer.includes('Use generic memory only when the human clearly asks for global personal memory outside Claworld'));
+    assert.ok(pointer.includes('## World Operation Confirmation'));
+    assert.ok(pointer.includes('read like an announcement a person would understand'), 'broadcast preview should read like a human announcement');
+    assert.ok(pointer.includes('do not put raw field names'), 'world confirmation should keep raw field names out of human-facing text');
+    assert.ok(pointer.includes('## Feedback Routing'));
+    assert.ok(pointer.includes('claworld_manage_account(action=submit_feedback)'));
+    assert.ok(pointer.includes('Redact app tokens'));
+    assert.ok(pointer.includes('## Conversation Request Recovery'));
+    assert.ok(pointer.includes('Before `action=request`, inspect the resolved person and exact direct/world scope'));
+    assert.ok(pointer.includes('Make one `action=request` call for each human instruction'));
+    assert.ok(pointer.includes('first or last seen in the current request window proves creation'));
+    assert.ok(pointer.includes('If the backend returns `conversation_already_active`, do not retry'));
+    assert.ok(pointer.includes('## Conversation Transcript Images'));
+    assert.ok(pointer.includes('what was actually discussed in this conversation'));
+    assert.ok(pointer.includes('anything unrelated to the content'));
+    assert.ok(pointer.includes('8000px default maximum'));
+    assert.ok(pointer.includes('900 through 32000'));
+    assert.ok(pointer.includes('send every absolute PNG path in page order'));
+    assert.ok(pointer.includes('forceDocument=true'));
+    assert.ok(pointer.includes('## Plugin-Owned Report Context Sync'));
+    assert.ok(pointer.includes('# Claworld Management Report Context'));
+    assert.ok(pointer.includes('CLAWORLD_REPORT_CONTEXT_RECORDED:<reportId>'));
+    assert.equal(pointer.includes('sessions_send'), false);
+    assert.equal(pointer.includes('ANNOUNCE_READY'), false);
+    assert.equal(pointer.includes('## Contact Settings And Review Instructions'), false);
+    assert.equal(pointer.includes('## Tools'), false);
+    assert.equal(pointer.includes('### Starting a Conversation'), false);
+
+    const manageWorldsSkill = await readText(path.join(process.cwd(), 'skills', 'claworld-manage-worlds', 'SKILL.md'));
+    assert.ok(manageWorldsSkill.includes('World Operation Confirmation Rules'));
+    assert.ok(manageWorldsSkill.includes('`publish_broadcast`'));
+    assert.ok(manageWorldsSkill.includes('action=update_world_profile, worldId, participantContextText'));
+    assert.equal(manageWorldsSkill.includes('profileContextText'), false);
+    assert.ok(manageWorldsSkill.includes('read like an announcement a person would understand'), 'broadcast preview should read like a human announcement');
+    assert.ok(manageWorldsSkill.includes('Keep field names like'), 'broadcast preview should keep raw field names out of human-facing text');
+    assert.ok(manageWorldsSkill.includes('inspect `list_broadcast_history` or `list_world_activity` before retrying'));
+
+    const helpSkill = await readText(path.join(process.cwd(), 'skills', 'claworld-help', 'SKILL.md'));
+    assert.ok(helpSkill.includes('claworld_manage_account(action=view_account)'));
+    assert.ok(helpSkill.includes('`upgradeCommand`'));
+    assert.ok(helpSkill.includes('send `/restart`'));
+    assert.ok(helpSkill.includes('OpenClaw runtime update'));
+    assert.equal(helpSkill.includes('openclaw plugins update @xfxstudio/claworld --dry-run'), false);
+
+    const mainSkill = await readText(path.join(process.cwd(), 'skills', 'claworld-main-session', 'SKILL.md'));
+    assert.ok(mainSkill.includes('Before installing, upgrading'));
+    assert.ok(mainSkill.includes('read the `claworld-help` skill'));
+    assert.ok(mainSkill.includes('Main Session owns the review instructions'));
+    assert.ok(mainSkill.includes('`.claworld/context/PROFILE.md`'));
+    assert.ok(mainSkill.includes('`.claworld/context/NOW.md`'));
+    assert.ok(mainSkill.includes('host-wide or generic user memory'));
+
+    const managementSkill = await readText(path.join(process.cwd(), 'skills', 'claworld-management-session', 'SKILL.md'));
+    assert.ok(managementSkill.includes('`approval_required` is review mode'));
+    assert.ok(managementSkill.includes('Accept, reject, or ask the human'));
+    assert.ok(managementSkill.includes('No request, review, or accept/reject action reaches you'));
+    assert.ok(managementSkill.includes('Always report the outcome to the human'));
+    assert.ok(managementSkill.includes('value affects length, not whether to report'));
+    assert.ok(managementSkill.includes("use the notification's exact `chatRequestId`"));
+    assert.ok(managementSkill.includes('Process every delivered conversation-ended notification'));
+    assert.equal(managementSkill.includes('has already been reported successfully'), false);
+
+    assert.deepEqual(markdownHeadings(helpSkill), [
+      '# Claworld Help',
+      '## When To Read This',
+      '## Your Role',
+      '## Default Diagnostic Path',
+      '## Account And Policy Tools',
+      '## Plugin Lifecycle',
+      '### First Install',
+      '### Upgrade An Installed Plugin',
+      '### Uninstall',
+      '## Troubleshooting Order',
+      '### World, Join, Or Conversation Errors',
+      '### Accepting A Request',
+      '### Conversation Or Request State',
+      '### Conversation Request Targets',
+      '## Validation',
+      '## Feedback',
+    ]);
+    assert.deepEqual(markdownHeadings(mainSkill), [
+      '# Claworld Main Session Skill',
+      '## Your Role',
+      '## Sessions',
+      '## Talking To The Human',
+      '## Working Memory',
+      '## Tools',
+      '## Actions',
+      '### Discovering Worlds',
+      '### Joining a World',
+      '### Finding Members',
+      '### Starting a Conversation',
+      '### Inbound Requests',
+      '### Exporting a Transcript',
+      '### Following Up on Management Reports',
+      '## Contact Settings And Review Instructions',
+      '## Guardrails',
+      '## Verification',
+      '## Quick Reference',
+      '## When To Load This Skill',
+    ]);
+    assert.deepEqual(markdownHeadings(manageWorldsSkill), [
+      '# Claworld World Management',
+      '## Explaining Worlds To The Human',
+      '## Public Capabilities',
+      '## World Operation Confirmation Rules',
+      '## `worldContextText` Minimum Contract',
+      '## World Context Templates',
+      '## Join And Follow-Up',
+      '## Broadcast / Activity',
+      '## Common Workflows',
+      '### Creating a World',
+      '### Managing Owned Worlds',
+      '### Managing Joined Worlds',
+      '### Reviewing Received Invites',
+      '## Quick Reference',
+      '## Pitfalls',
+      '## Verification',
+    ]);
+    assert.deepEqual(markdownHeadings(managementSkill), [
+      '## Your Role',
+      '## Working Memory',
+      '## Wake Loop',
+      '## Handling Notifications',
+      '### Conversation Ended',
+      '#### What To Do',
+      '#### What To Report',
+      '### Chat Request Created',
+      '#### What To Do',
+      '#### What To Report',
+      '### World Invitation Received',
+      '#### What To Do',
+      '#### What To Report',
+      '### World Broadcast Published',
+      '#### What To Do',
+      '#### What To Report',
+      '### Other Notifications',
+      '## Reporting',
+      '### Report Principles',
+      '### What Every Report Should Cover',
+      '### Golden Quote',
+      '### Information Exchange Opportunity',
+      '### Openings: Never The Same Twice',
+      '### Weave Your Judgment Into The Narrative',
+      "### Combined Reports: Don't Sound Like An Assembly Line",
+      '### Quick Reference: Stiff vs. Natural',
+      '### Ending: Always Leave A CTA',
+      '### Full Examples',
+      '### Report Content Guardrails',
+      '## Delivery',
+      '### Main Session And Human Route',
+      '### Preparing The Tool Call',
+      '### One-call Reporting',
+      '### After The Tool Call',
+      '## Proactive Actions',
+      '### When to Reach Out',
+      '### Starting a World-Scoped Conversation',
+      '### Direct Conversations',
+      '## Tools',
+      '## Guardrails',
+      '## Quick Reference',
+    ]);
+
     const runtimeEvent = buildClaworldRuntimeMaintenanceEvent({
       timestamp: '2026-04-22T00:00:00.000Z',
       kind: 'owner_report',
@@ -455,7 +623,8 @@ async function main() {
     assert.ok(mainBootstrap.appendSystemContext.includes(path.join(workspaceRoot, '.claworld', 'sessions', 'index.json')));
     assert.ok(mainBootstrap.appendSystemContext.includes('met Bob in world-1'));
     assert.ok(mainBootstrap.appendSystemContext.includes('Claworld is a social app that you and your human are connected to'));
-    assert.ok(mainBootstrap.appendSystemContext.includes('A Management Session may occasionally contact you'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('A Management Session handles Claworld updates'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('records every human-facing Management report in this Main Session'));
     assert.ok(mainBootstrap.appendSystemContext.includes('Do not proactively contact Conversation Sessions'));
     assert.ok(mainBootstrap.appendSystemContext.includes('## Managing PROFILE.md'));
     assert.ok(mainBootstrap.appendSystemContext.includes('You are responsible to maintain'));
@@ -463,7 +632,22 @@ async function main() {
     assert.ok(mainBootstrap.appendSystemContext.includes('Keep single-event conversation details'));
     assert.ok(mainBootstrap.appendSystemContext.includes('When you report Claworld activity to the human'));
     assert.ok(mainBootstrap.appendSystemContext.includes('sound like a normal person giving a useful update'));
-    assert.ok(mainBootstrap.appendSystemContext.includes('Do not use `sessions_send` to place peer-facing content'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('## Required Skill Routing'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('read the `claworld-manage-worlds` skill again'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('read the `claworld-help` skill'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('## Claworld Memory Routing'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('## World Operation Confirmation'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('## Feedback Routing'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('## Conversation Transcript Images'));
+    // Skill body content (injected from claworld-main-session/SKILL.md)
+    assert.ok(mainBootstrap.appendSystemContext.includes('\n## Contact Settings And Review Instructions\n'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('\n## Tools\n'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('\n### Joining a World\n'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('\n### Inbound Requests\n'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('\n## Talking To The Human\n'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('participantContextField'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('Select only visible original messages'));
+    assert.ok(mainBootstrap.appendSystemContext.includes('writes local SVG and PNG files'));
     assert.equal(mainBootstrap.appendSystemContext.includes('# Claworld Context Pointer'), false);
 
     const externalMainBootstrap = await buildClaworldBootstrapPromptContext({
@@ -477,7 +661,6 @@ async function main() {
     assert.ok(externalMainBootstrap.appendSystemContext.includes(path.join(workspaceRoot, '.claworld', 'context', 'MEMORY.md')));
     assert.ok(externalMainBootstrap.appendSystemContext.includes(path.join(workspaceRoot, '.claworld', 'sessions', 'index.json')));
     assert.ok(externalMainBootstrap.appendSystemContext.includes('met Bob in world-1'));
-    assert.ok(externalMainBootstrap.appendSystemContext.includes('send a peer-facing message, use Claworld tools'));
     assert.ok(externalMainBootstrap.appendSystemContext.includes('Do not proactively contact Conversation Sessions'));
     assert.equal(externalMainBootstrap.appendSystemContext.includes('# Claworld Context Pointer'), false);
 
@@ -491,6 +674,7 @@ async function main() {
     assert.ok(conversationBootstrap.appendSystemContext.includes('.claworld/context/NOW.md'));
     assert.ok(conversationBootstrap.appendSystemContext.includes('.claworld/context/MEMORY.md'));
     assert.ok(conversationBootstrap.appendSystemContext.includes('.claworld/context/PROFILE.md'));
+    assert.ok(conversationBootstrap.appendSystemContext.includes('You should never report your activity to the human or modify the claworld working memory.'));
     assert.equal(conversationBootstrap.appendSystemContext.includes('# Claworld Context Pointer'), false);
 
     const agentScopedConversationBootstrap = await buildClaworldBootstrapPromptContext({
@@ -502,6 +686,7 @@ async function main() {
     assert.ok(agentScopedConversationBootstrap.appendSystemContext.includes('.claworld/context/NOW.md'));
     assert.ok(agentScopedConversationBootstrap.appendSystemContext.includes('.claworld/context/MEMORY.md'));
     assert.ok(agentScopedConversationBootstrap.appendSystemContext.includes('.claworld/context/PROFILE.md'));
+    assert.ok(agentScopedConversationBootstrap.appendSystemContext.includes('You should never report your activity to the human or modify the claworld working memory.'));
     assert.equal(agentScopedConversationBootstrap.appendSystemContext.includes('# Claworld Context Pointer'), false);
 
     const managementBootstrap = await buildClaworldBootstrapPromptContext({
@@ -520,21 +705,45 @@ async function main() {
     assert.ok(managementBootstrap.appendSystemContext.includes('Conversation Session handles live peer-facing Claworld chat'));
     assert.ok(managementBootstrap.appendSystemContext.includes('## First Rule'));
     assert.ok(managementBootstrap.appendSystemContext.includes('read the `claworld-management-session` skill before deciding what to do'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('A pre-compaction memory flush is a maintenance turn only'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('A memory compaction is a maintenance turn only'));
     assert.ok(managementBootstrap.appendSystemContext.includes('handle the pending or next Claworld notification from scratch'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('## What To Trust'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('Use Claworld tools when you need current product facts'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('Use `.claworld/` files as private working memory'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('When local memory and current tool results differ'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('## Human-Facing Management Reports'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('Use `claworld_report_to_human` once'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('A normal Management assistant reply stays inside the Management Session'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('world.broadcast_published:<broadcastId>'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('Do not call `claworld_render_transcript_report` in Management'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('source.kind=`notification`'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('Non-conversation reports contain text only'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('## Active Conversation Admission'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('If the backend returns `conversation_already_active`, do not retry'));
+    assert.ok(managementBootstrap.appendSystemContext.includes("use the notification's exact `chatRequestId`"));
+    assert.ok(managementBootstrap.appendSystemContext.includes('Process every delivered conversation-ended notification'));
+    assert.equal(managementBootstrap.appendSystemContext.includes('has already been reported successfully'), false);
+    assert.ok(managementBootstrap.appendSystemContext.includes('## Transcript Report Delivery'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('Every conversation-ended report includes its transcript images'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('localTranscriptEpisode.messages'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('what was actually discussed in this conversation'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('anything unrelated to the content'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('Call `claworld_report_to_human` once'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('transcript={mode: "stored", topic: "<exact episode topic>"}'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('at least one Golden Quote or vivid highlighted moment'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('contextSynced=true, textSent=true, and every page sent'));
     assert.ok(managementBootstrap.appendSystemContext.includes('## Local Files'));
     assert.ok(managementBootstrap.appendSystemContext.includes('PROFILE.md:'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('journal/:'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('Read it only; do not edit or create journal files'));
     assert.ok(managementBootstrap.appendSystemContext.includes('sessions/index.json:'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('## Skills'));
-    assert.ok(managementBootstrap.appendSystemContext.includes('`claworld-management-session`: required for notifications'));
-    assert.equal(managementBootstrap.appendSystemContext.includes('`claworld-main-session`:'), false);
-    assert.ok(managementBootstrap.appendSystemContext.includes('`claworld-manage-worlds`: use for world creation'));
+    // Skill body content (injected from claworld-management-session/SKILL.md)
+    assert.ok(managementBootstrap.appendSystemContext.includes('\n### Chat Request Created\n'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('`approval_required` is review mode'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('\n## Reporting\n'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('Always report the outcome to the human'));
+    assert.equal(managementBootstrap.appendSystemContext.includes('sessions_send'), false);
+    assert.equal(managementBootstrap.appendSystemContext.includes('ANNOUNCE_READY'), false);
+    assert.ok(managementBootstrap.appendSystemContext.includes('\n### World Broadcast Published\n'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('\n## Working Memory\n'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('\n## Wake Loop\n'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('\n#### What To Report\n'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('Every conversation-ended report includes a text summary and a transcript image'));
+    assert.ok(managementBootstrap.appendSystemContext.includes('The same person can matter differently in different'));
     assert.equal(managementBootstrap.appendSystemContext.includes('## Runtime Hints'), false);
     assert.equal(managementBootstrap.appendSystemContext.includes('journal meaningful side effects'), false);
     assert.equal(managementBootstrap.appendSystemContext.includes('## Event Handling'), false);
@@ -542,7 +751,6 @@ async function main() {
     assert.equal(managementBootstrap.appendSystemContext.includes('This startup prompt is the operating map'), false);
     assert.equal(managementBootstrap.appendSystemContext.includes('## File Schemas'), false);
     assert.equal(managementBootstrap.appendSystemContext.includes('Testing observability is intentionally high'), false);
-    assert.equal(managementBootstrap.appendSystemContext.includes('A complete report gives the Main Session context through `sessions_send`'), false);
     assert.ok(managementBootstrap.appendSystemContext.includes('# Claworld Management Startup Memory'));
     assert.ok(managementBootstrap.appendSystemContext.includes(path.join(workspaceRoot, '.claworld', 'context', 'PROFILE.md')));
     assert.ok(managementBootstrap.appendSystemContext.includes(path.join(workspaceRoot, '.claworld', 'context', 'MEMORY.md')));
@@ -608,12 +816,15 @@ async function main() {
       },
       {
         maxCharsPerFile: 90,
-        maxTotalChars: 280,
+        maxTotalChars: 700,
       },
     );
     assert.equal(truncatedBootstrap.target, CLAWORLD_BOOTSTRAP_TARGETS.CLAWORLD_CONVERSATION);
     assert.equal(truncatedBootstrap.truncated, true);
-    assert.equal(truncatedBootstrap.appendSystemContext.length, 216);
+    assert.ok(truncatedBootstrap.appendSystemContext.includes('# Claworld Conversation Startup Context'));
+    assert.ok(truncatedBootstrap.appendSystemContext.includes('## Conversation Behavior'));
+    assert.ok(truncatedBootstrap.appendSystemContext.includes('You should never report your activity to the human or modify the claworld working memory.'));
+    assert.ok(truncatedBootstrap.appendSystemContext.includes('Truncated'));
     assert.deepEqual(
       truncatedBootstrap.omittedFiles,
       [

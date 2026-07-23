@@ -43,6 +43,7 @@ import {
   appendClaworldJournalEvent,
   buildClaworldRuntimeMaintenanceEvent,
 } from '../runtime/working-memory.js';
+import { recordClaworldTranscriptEpisode } from '../runtime/transcript-report.js';
 import {
   broadcastModeratedWorld,
   createModeratedWorld,
@@ -53,6 +54,7 @@ import {
   revokeModeratedWorldInvite,
 } from '../runtime/world-moderation-helper.js';
 import {
+  fetchPendingWorldInvites,
   fetchWorldMembership,
   fetchWorldMemberships,
   leaveWorldMembership,
@@ -74,6 +76,12 @@ import {
 } from '../runtime/product-shell-helper.js';
 import { extractBackendErrorContext } from '../runtime/backend-error-context.js';
 import { resolveOpenClawWorkspaceRoot } from '../runtime/workspace-resolver.js';
+import {
+  claimInboundNotification,
+  completeInboundNotification,
+  releaseInboundNotification,
+  resolveInboundNotificationIdempotencyKey,
+} from '../runtime/inbound-notification-idempotency.js';
 import { getClaworldRuntime } from './runtime.js';
 import {
   CLAWORLD_PLUGIN_CURRENT_VERSION,
@@ -232,6 +240,7 @@ function buildGeneratedClientMessageId() {
 }
 
 const DEFAULT_RELAY_HTTP_TIMEOUT_MS = 15_000;
+export const CHAT_REQUEST_CREATE_TIMEOUT_MS = 60_000;
 const CLAWORLD_ASSISTANT_OUTPUT_TTL_MS = 60_000;
 const CLAWORLD_ASSISTANT_OUTPUT_WAIT_MS = 750;
 const CLAWORLD_ASSISTANT_OUTPUT_POLL_MS = 25;
@@ -269,6 +278,18 @@ function normalizeClaworldText(value, fallback = null) {
 
 function isClaworldPlainObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function resolveAccountProfileEnvelope(payload = null) {
+  return isClaworldPlainObject(payload?.profile) ? payload.profile : null;
+}
+
+function resolveAccountAgentId(payload = null, fallback = null) {
+  const profile = resolveAccountProfileEnvelope(payload);
+  return normalizeClaworldText(
+    payload?.agentId,
+    normalizeClaworldText(profile?.agentId, fallback),
+  );
 }
 
 function resolveClaworldOpeningMessage({
@@ -902,20 +923,23 @@ function createRelayRouteError({
   message,
   context = {},
   passThroughBackendConflict = false,
+  passThroughBackendMessages = false,
 }) {
   const backendCode = resolveNormalizedText(result?.body?.error, null);
   const backendMessage = resolveNormalizedText(result?.body?.message, null);
   const shouldPassThroughConflict = passThroughBackendConflict === true
     && Number(result?.status) === 409
     && backendCode;
+  const shouldPassThroughBackendMessage = (shouldPassThroughConflict || (passThroughBackendMessages === true && backendMessage))
+    && backendMessage;
   throw createRuntimeBoundaryError({
     code: shouldPassThroughConflict ? backendCode : code,
     category: shouldPassThroughConflict ? 'conflict' : 'transport',
     status: result?.status >= 500 ? 502 : result?.status || 502,
-    message: shouldPassThroughConflict
+    message: shouldPassThroughBackendMessage
       ? (backendMessage || message || publicMessage)
       : (message || publicMessage),
-    publicMessage: shouldPassThroughConflict
+    publicMessage: shouldPassThroughBackendMessage
       ? (backendMessage || publicMessage)
       : publicMessage,
     recoverable: true,
@@ -992,6 +1016,7 @@ async function createChatRequest({
     });
   }
   const result = await fetchJson(fetchImpl, `${baseUrl}/v1/chat-requests`, {
+    timeoutMs: CHAT_REQUEST_CREATE_TIMEOUT_MS,
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -1023,6 +1048,7 @@ async function createChatRequest({
         agentCode: normalizedAgentCode,
       },
       passThroughBackendConflict: true,
+      passThroughBackendMessages: true,
     });
   }
   return result.body || {};
@@ -1968,6 +1994,7 @@ async function fetchRuntimeWorldActivity({
   agentId = null,
   worldId = null,
   limit = null,
+  activityType = null,
   fetchImpl,
 }) {
   const normalizedWorldId = normalizeClaworldText(worldId, null);
@@ -1986,6 +2013,7 @@ async function fetchRuntimeWorldActivity({
   const requestUrl = new URL(`${baseUrl}/v1/worlds/${encodeURIComponent(normalizedWorldId)}/activity`);
   if (agentId) requestUrl.searchParams.set('agentId', agentId);
   if (limit != null) requestUrl.searchParams.set('limit', String(limit));
+  if (activityType) requestUrl.searchParams.set('activityType', activityType);
   const result = await fetchJson(fetchImpl, requestUrl.toString(), {
     headers: {
       accept: 'application/json',
@@ -2070,7 +2098,7 @@ async function ensureRelayBinding({ runtimeConfig, fetchImpl, logger }) {
       expiresInSeconds: null,
       fetchImpl,
     });
-    const resolvedAgentId = normalizeClaworldText(identityPayload?.agentId, null);
+    const resolvedAgentId = resolveAccountAgentId(identityPayload, null);
     if (resolvedAgentId) {
       return {
         runtimeConfig: applyRuntimeIdentity(normalizedRuntimeConfig, { agentId: resolvedAgentId }),
@@ -2090,11 +2118,100 @@ async function ensureRelayBinding({ runtimeConfig, fetchImpl, logger }) {
   };
 }
 
-function resolveDeliveryWorldId(delivery = {}) {
-  const metadata = delivery?.metadata && typeof delivery.metadata === 'object' && !Array.isArray(delivery.metadata)
-    ? delivery.metadata
-    : {};
-  return resolveNormalizedText(metadata.worldId, null) || null;
+function deliveryScopeObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function deliveryScopeRecords(delivery = {}) {
+  const root = deliveryScopeObject(delivery);
+  const payload = deliveryScopeObject(root.payload);
+  const metadata = deliveryScopeObject(root.metadata);
+  const payloadMetadata = deliveryScopeObject(payload.metadata);
+  const notifications = [
+    deliveryScopeObject(root.notification),
+    deliveryScopeObject(payload.notification),
+  ];
+  const records = [root, payload, metadata, payloadMetadata, ...notifications];
+  for (const record of [...records]) {
+    const relatedObjects = deliveryScopeObject(record.relatedObjects);
+    if (Object.keys(relatedObjects).length) records.push(relatedObjects);
+  }
+  return records;
+}
+
+function resolveConsistentDeliveryScope(candidates, { code, message }) {
+  const normalized = candidates
+    .map((candidate) => resolveNormalizedText(candidate, null))
+    .filter(Boolean);
+  const canonical = normalized[0] || null;
+  if (normalized.some((candidate) => candidate !== canonical)) {
+    const error = new Error(message);
+    error.code = code;
+    throw error;
+  }
+  return canonical;
+}
+
+function deliveryFieldCandidates(delivery, fieldNames) {
+  return deliveryScopeRecords(delivery).flatMap((record) => (
+    fieldNames.map((fieldName) => record[fieldName])
+  ));
+}
+
+export function resolveDeliveryWorldId(delivery = {}) {
+  return resolveConsistentDeliveryScope(
+    deliveryFieldCandidates(delivery, ['worldId']),
+    {
+      code: 'relay_world_scope_mismatch',
+      message: 'relay delivery worldId fields do not agree',
+    },
+  );
+}
+
+export function resolveDeliveryConversationKey(delivery = {}) {
+  return resolveConsistentDeliveryScope(
+    deliveryFieldCandidates(delivery, ['conversationKey']),
+    {
+      code: 'relay_conversation_scope_mismatch',
+      message: 'relay delivery conversationKey fields do not agree',
+    },
+  );
+}
+
+export function resolveDeliveryTargetAgentId(delivery = {}) {
+  return resolveConsistentDeliveryScope(
+    deliveryFieldCandidates(delivery, ['targetAgentId']),
+    {
+      code: 'relay_target_scope_mismatch',
+      message: 'relay delivery targetAgentId fields do not agree',
+    },
+  );
+}
+
+export function resolveDeliveryChatRequestId(delivery = {}) {
+  return resolveConsistentDeliveryScope(
+    deliveryFieldCandidates(delivery, ['chatRequestId', 'requestId', 'kickoffRequestId']),
+    {
+      code: 'relay_chat_request_scope_mismatch',
+      message: 'relay delivery chatRequestId fields do not agree',
+    },
+  );
+}
+
+export function assertDeliveryConversationScope({ conversationKey = null, worldId = null } = {}) {
+  const normalizedConversationKey = resolveNormalizedText(conversationKey, null);
+  const normalizedWorldId = resolveNormalizedText(worldId, null);
+  if (!normalizedConversationKey) return;
+  const keyWorldId = /(?:^|:)world:([^:]+)$/iu.exec(normalizedConversationKey)?.[1] || null;
+  const direct = !keyWorldId && /:direct$/iu.test(normalizedConversationKey);
+  if (
+    (direct && normalizedWorldId)
+    || (keyWorldId && (!normalizedWorldId || keyWorldId !== normalizedWorldId))
+  ) {
+    const error = new Error('relay delivery conversationKey and worldId do not agree');
+    error.code = 'relay_conversation_world_scope_mismatch';
+    throw error;
+  }
 }
 
 function buildDeliveryInboundEnvelope({
@@ -2110,6 +2227,7 @@ function buildDeliveryInboundEnvelope({
   sessionKey,
   localSessionKey = null,
   worldId = null,
+  chatRequestId = null,
   conversationKey = null,
   untrustedContext = [],
 }) {
@@ -2131,6 +2249,7 @@ function buildDeliveryInboundEnvelope({
   const contextLines = mergeUntrustedContextLines([
     `[claworld peer ${remoteLabel}]`,
     ...(worldId ? [`[claworld world ${worldId}]`] : []),
+    ...(chatRequestId ? [`[claworld chat request ${chatRequestId}]`] : []),
     ...(conversationKey ? [`[claworld conversation ${conversationKey}]`] : []),
     ...(localSessionKey && localSessionKey !== sessionKey ? [`[claworld local session ${localSessionKey}]`] : []),
     `[claworld relay session ${sessionKey}]`,
@@ -2366,23 +2485,11 @@ function buildInboundRuntimeMaintenanceEvent({
   const normalizedEventType = resolveNormalizedText(eventType, 'delivery');
   const isRelayDelivery = normalizedEventType === 'delivery';
   const sessionKey = resolveNormalizedText(delivery.sessionKey, null);
-  const requestId = resolveNormalizedText(
-    metadata.kickoffRequestId,
-    resolveNormalizedText(metadata.requestId, resolveNormalizedText(metadata.chatRequestId, null)),
-  );
-  const worldId = resolveNormalizedText(
-    metadata.worldId,
-    resolveNormalizedText(delivery.worldId, resolveNormalizedText(payload.worldId, null)),
-  );
-  const conversationKey = resolveNormalizedText(
-    metadata.conversationKey,
-    resolveNormalizedText(delivery.conversationKey, resolveNormalizedText(payload.conversationKey, null)),
-  );
+  const requestId = resolveDeliveryChatRequestId(delivery);
+  const worldId = resolveDeliveryWorldId(delivery);
+  const conversationKey = resolveDeliveryConversationKey(delivery);
   const fromAgentId = resolveNormalizedText(metadata.fromAgentId, null);
-  const targetAgentId = resolveNormalizedText(
-    delivery.targetAgentId,
-    resolveNormalizedText(payload.targetAgentId, resolveNormalizedText(metadata.targetAgentId, null)),
-  );
+  const targetAgentId = resolveDeliveryTargetAgentId(delivery);
   const notificationId = resolveNormalizedText(
     metadata.notificationId,
     resolveNormalizedText(payload.notificationId, null),
@@ -2481,6 +2588,7 @@ function createDeliveryReplyDispatcher({
   let suppressed = false;
   let replyTransport = null;
   let replyFallbackUsed = false;
+  let submittedReplyText = null;
   let keptSilentTransport = null;
   let keptSilentFallbackUsed = false;
   const finalTexts = [];
@@ -2664,6 +2772,7 @@ function createDeliveryReplyDispatcher({
     const replyResult = await submitRelayReply(normalized);
     replyTransport = replyResult?.transport || null;
     replyFallbackUsed = replyResult?.fallbackUsed === true;
+    submittedReplyText = normalized;
     replied = true;
     return true;
   };
@@ -2821,6 +2930,7 @@ function createDeliveryReplyDispatcher({
     markDispatchIdle,
     didReply: () => replied,
     didKeepSilent: () => keptSilent,
+    getSubmittedReplyText: () => submittedReplyText,
     submitMessageToolReply,
     getRuntimeOutputSummary: () => ({
       counts: { ...runtimeOutputSummary.counts },
@@ -2868,6 +2978,7 @@ async function runDeliveryReplyDispatch({
     markDispatchIdle,
     didReply,
     didKeepSilent,
+    getSubmittedReplyText,
     submitMessageToolReply,
     getRuntimeOutputSummary,
   } = createDeliveryReplyDispatcher({
@@ -2934,6 +3045,7 @@ async function runDeliveryReplyDispatch({
     dispatchResult,
     replied: didReply(),
     keptSilent: didKeepSilent(),
+    replyText: getSubmittedReplyText(),
     runtimeOutputSummary: getRuntimeOutputSummary(),
   };
 }
@@ -2973,7 +3085,7 @@ function resolveBoundLocalAgentId({ cfg = {}, runtimeConfig = {}, relayClient } 
     || 'main';
 }
 
-async function maybeBridgeRuntimeInboundEvent({
+export async function maybeBridgeRuntimeInboundEvent({
   relayClient,
   runtimeConfig,
   runtimeAccountId,
@@ -3007,6 +3119,7 @@ async function maybeBridgeRuntimeInboundEvent({
   const fromAgentId = resolveNormalizedText(metadata.fromAgentId, null);
   const isRelayDelivery = eventType === 'delivery';
   const allowReply = metadata.allowReply === true || (isRelayDelivery && metadata.allowReply !== false);
+  const chatRequestId = resolveDeliveryChatRequestId(delivery);
 
   if (
     !runtime?.channel?.reply?.finalizeInboundContext
@@ -3029,6 +3142,23 @@ async function maybeBridgeRuntimeInboundEvent({
       hasContextText: Boolean(contextText),
     });
     return { skipped: true, reason: 'missing_inbound_payload' };
+  }
+  const configuredRelayAgentId = resolveNormalizedText(
+    runtimeConfig?.relay?.agentId,
+    resolveNormalizedText(relayClient?.boundAgentId, null),
+  );
+  const deliveryTargetAgentId = resolveDeliveryTargetAgentId(delivery);
+  if (
+    configuredRelayAgentId
+    && deliveryTargetAgentId
+    && configuredRelayAgentId !== deliveryTargetAgentId
+  ) {
+    logger.error?.(`[claworld:${runtimeAccountId}] rejected inbound delivery for a different Relay agent`, {
+      eventType,
+      deliveryId,
+      sessionKey,
+    });
+    return { skipped: true, reason: 'target_agent_mismatch' };
   }
 
   const loadedCfg = await runtime.config?.loadConfig?.() || {};
@@ -3057,9 +3187,48 @@ async function maybeBridgeRuntimeInboundEvent({
     event?.route?.sessionKind,
     resolveNormalizedText(routed?.sessionKind, null),
   );
+  const isManagementSession = routeSessionKind === 'management';
+  const workspaceRoot = resolveOpenClawWorkspaceRoot({
+    sources: [
+      { agentId: localAgentId, localAgentId },
+      currentCfg,
+      runtimeConfig,
+    ],
+    config: currentCfg,
+    agentId: localAgentId,
+  });
+  const notificationIdempotencyKey = resolveInboundNotificationIdempotencyKey({
+    delivery,
+    payload,
+    metadata,
+    eventType,
+    sessionKind: routeSessionKind,
+  });
+  let notificationClaim = null;
+  if (notificationIdempotencyKey) {
+    if (!workspaceRoot) {
+      throw new Error('unable to resolve OpenClaw workspace for Management notification idempotency');
+    }
+    notificationClaim = await claimInboundNotification({
+      workspaceRoot,
+      key: notificationIdempotencyKey,
+    });
+    if (!notificationClaim.claimed) {
+      logger.info?.(`[claworld:${runtimeAccountId}] suppressed duplicate Management notification`, {
+        eventType,
+        deliveryId,
+        sessionKey,
+        reason: notificationClaim.reason,
+      });
+      return { skipped: true, reason: 'duplicate_management_notification' };
+    }
+  }
+  try {
   const remoteIdentity = fromAgentId
     || resolveNormalizedText(metadata.source, routeSessionKind === 'management' ? 'claworld-management' : 'unknown-peer');
   const worldId = resolveDeliveryWorldId(delivery);
+  const conversationKey = resolveDeliveryConversationKey(delivery);
+  assertDeliveryConversationScope({ conversationKey, worldId });
   const commandAuthorized = isRelayDelivery && shouldAuthorizeBridgedCommand({
     runtimeConfig,
     incomingText: commandText || incomingText,
@@ -3078,11 +3247,11 @@ async function maybeBridgeRuntimeInboundEvent({
     sessionKey,
     localSessionKey,
     worldId,
-    conversationKey: metadata.conversationKey || null,
+    chatRequestId,
+    conversationKey,
     untrustedContext: payload.untrustedContext,
   });
   const localIdentity = normalizeClaworldText(runtimeConfig.relay?.agentId, runtimeConfig.accountId);
-  const isManagementSession = routeSessionKind === 'management';
   const senderName = isManagementSession ? 'Claworld' : remoteIdentity;
   const conversationLabel = isManagementSession ? 'Claworld management' : remoteIdentity;
   const inboundCtx = runtime.channel.reply.finalizeInboundContext({
@@ -3114,8 +3283,9 @@ async function maybeBridgeRuntimeInboundEvent({
     WasMentioned: false,
     CommandAuthorized: commandAuthorized,
     RelayDeliveryId: isRelayDelivery ? deliveryId : null,
+    RelayChatRequestId: chatRequestId,
     RelayFromAgentId: fromAgentId,
-    RelayConversationKey: metadata.conversationKey || null,
+    RelayConversationKey: conversationKey,
     UntrustedContext,
   });
 
@@ -3174,6 +3344,7 @@ async function maybeBridgeRuntimeInboundEvent({
     dispatchResult,
     replied,
     keptSilent,
+    replyText,
     runtimeOutputSummary,
   } = await runDeliveryReplyDispatch({
     runtime,
@@ -3223,6 +3394,7 @@ async function maybeBridgeRuntimeInboundEvent({
       dispatchResult,
       replied,
       keptSilent,
+      replyText,
       runtimeOutputSummary,
     } = await runDeliveryReplyDispatch({
       runtime,
@@ -3242,15 +3414,6 @@ async function maybeBridgeRuntimeInboundEvent({
   }
 
   let journalResult = null;
-  const workspaceRoot = resolveOpenClawWorkspaceRoot({
-    sources: [
-      { agentId: localAgentId, localAgentId },
-      currentCfg,
-      runtimeConfig,
-    ],
-    config: currentCfg,
-    agentId: localAgentId,
-  });
   if (workspaceRoot) {
     try {
       const maintenanceEvent = buildInboundRuntimeMaintenanceEvent({
@@ -3274,6 +3437,59 @@ async function maybeBridgeRuntimeInboundEvent({
         error: error?.message || String(error),
       });
     }
+
+    if (isRelayDelivery) {
+      if (chatRequestId) {
+        try {
+          const transcriptIndexResult = await recordClaworldTranscriptEpisode(workspaceRoot, {
+            chatRequestId,
+            deliveryId,
+            localSessionKey,
+            relaySessionKey: sessionKey,
+            conversationKey,
+            accountId: runtimeAccountId,
+            relayAgentId: resolveNormalizedText(
+              runtimeConfig?.relay?.agentId,
+              resolveDeliveryTargetAgentId(delivery),
+            ),
+            worldId,
+            targetAgentId: resolveDeliveryTargetAgentId(delivery)
+              || resolveNormalizedText(runtimeConfig?.relay?.agentId, null),
+            fromAgentId,
+            fromAgentCode: metadata.fromAgentCode,
+            fromDisplayIdentity: metadata.fromDisplayIdentity,
+            localAgentId,
+            deliveryType: metadata.deliveryType,
+            commandText,
+            contextText,
+            untrustedContext: payload.untrustedContext,
+            conversationContext: payload.conversationContext,
+            createdAt: delivery.createdAt || metadata.createdAt || payload.createdAt || null,
+            turnCreatedAt: delivery.turnCreatedAt || metadata.turnCreatedAt || payload.turnCreatedAt || null,
+            replyText,
+          });
+          if (transcriptIndexResult?.ok === false) {
+            logger.warn?.(`[claworld:${runtimeAccountId}] transcript episode was rejected`, {
+              eventType,
+              deliveryId,
+              sessionKey,
+              reason: transcriptIndexResult.reason || 'unknown',
+            });
+          }
+        } catch (error) {
+          logger.warn?.(`[claworld:${runtimeAccountId}] transcript episode indexing failed`, {
+            deliveryId,
+            chatRequestId,
+            sessionKey,
+            error: error?.message || String(error),
+          });
+        }
+      }
+    }
+  }
+
+  if (notificationClaim?.claimed) {
+    await completeInboundNotification(notificationClaim);
   }
 
   logger.info?.(`[claworld:${runtimeAccountId}] ${isRelayDelivery ? 'delivery bridge completed' : 'inbound bridge completed'}`, {
@@ -3301,6 +3517,21 @@ async function maybeBridgeRuntimeInboundEvent({
     localSessionKey,
     routeStatus: routed?.status || null,
   };
+  } catch (error) {
+    if (notificationClaim?.claimed) {
+      try {
+        await releaseInboundNotification(notificationClaim);
+      } catch (releaseError) {
+        logger.error?.(`[claworld:${runtimeAccountId}] failed to release Management notification claim`, {
+          eventType,
+          deliveryId,
+          sessionKey,
+          error: releaseError?.message || String(releaseError),
+        });
+      }
+    }
+    throw error;
+  }
 }
 
 export function createClaworldChannelPlugin({
@@ -4350,7 +4581,10 @@ async function generateRuntimeProfileCard(context = {}) {
     shareCardVariant: context.shareCardVariant ?? null,
     fetchImpl,
   });
-  return result?.shareCard || {};
+  const profileEnvelope = result?.profile && typeof result.profile === 'object' && !Array.isArray(result.profile)
+    ? result.profile
+    : null;
+  return profileEnvelope?.shareCard || {};
 }
 
   return {
@@ -4811,6 +5045,7 @@ async function generateRuntimeProfileCard(context = {}) {
             agentId: resolvedContext.agentId || null,
             worldId: context.worldId || null,
             limit: context.limit ?? null,
+            activityType: context.activityType || null,
             fetchImpl,
           });
         },
@@ -4942,6 +5177,20 @@ async function generateRuntimeProfileCard(context = {}) {
             status: context.status || null,
             includeInactive: context.includeInactive === true,
             includeDisabled: context.includeDisabled !== false,
+            fetchImpl,
+            logger,
+          });
+        },
+        listPendingInvites: async (context = {}) => {
+          const resolvedContext = await resolveBoundRuntimeContext(context);
+          return fetchPendingWorldInvites({
+            cfg: resolvedContext.cfg || {},
+            accountId: resolvedContext.accountId || null,
+            runtimeConfig: resolvedContext.runtimeConfig || null,
+            agentId: resolvedContext.agentId || null,
+            status: context.status || 'pending',
+            includeDisabled: context.includeDisabled !== false,
+            limit: context.limit ?? null,
             fetchImpl,
             logger,
           });
@@ -5211,6 +5460,7 @@ async function generateRuntimeProfileCard(context = {}) {
               agentId: resolvedContext.agentId || null,
               worldId: context.worldId || null,
               limit: context.limit ?? null,
+              activityType: context.activityType || null,
               fetchImpl,
             });
           },
@@ -5236,6 +5486,9 @@ async function generateRuntimeProfileCard(context = {}) {
               fetchImpl,
               logger,
               toolCallId: context.toolCallId || null,
+              source: context.source || null,
+              runtimeToolName: context.runtimeToolName || null,
+              accountToolAction: context.accountToolAction || null,
               pluginVersion: context.pluginVersion || null,
               toolContractVersion: context.toolContractVersion || null,
             });
@@ -5372,6 +5625,20 @@ async function generateRuntimeProfileCard(context = {}) {
               logger,
             });
           },
+          listPendingInvites: async (context = {}) => {
+            const resolvedContext = await resolveBoundRuntimeContext(context);
+            return fetchPendingWorldInvites({
+              cfg: resolvedContext.cfg || {},
+              accountId: resolvedContext.accountId || null,
+              runtimeConfig: resolvedContext.runtimeConfig || null,
+              agentId: resolvedContext.agentId || null,
+              status: context.status || 'pending',
+              includeDisabled: context.includeDisabled !== false,
+              limit: context.limit ?? null,
+              fetchImpl,
+              logger,
+            });
+          },
           getWorldMembership: async (context = {}) => {
             const resolvedContext = await resolveBoundRuntimeContext(context);
             return fetchWorldMembership({
@@ -5460,5 +5727,4 @@ async function generateRuntimeProfileCard(context = {}) {
   };
 }
 
-export const claworldChannelPluginScaffold = createClaworldChannelPlugin;
 export { normalizeRelayHttpBaseUrl };

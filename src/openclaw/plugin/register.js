@@ -13,6 +13,7 @@ import {
   projectToolWorldSearchResponse,
 } from '../runtime/tool-contracts.js';
 import { CLAWORLD_TOOL_CONTRACT_VERSION } from '../runtime/tool-inventory.js';
+import { CLAWORLD_PLUGIN_CURRENT_VERSION } from '../plugin-version.js';
 import {
   CLAWORLD_BOOTSTRAP_TARGETS,
   appendClaworldJournalEvent,
@@ -24,6 +25,13 @@ import {
   updateClaworldSessionDirectory,
 } from '../runtime/working-memory.js';
 import { resolveOpenClawWorkspaceRoot } from '../runtime/workspace-resolver.js';
+import {
+  MAX_PAGE_HEIGHT,
+  augmentConversationPayloadWithLocalTranscriptIndex,
+  cacheClaworldConversationDirections,
+  renderTranscriptReport,
+} from '../runtime/transcript-report.js';
+import { deliverClaworldManagementReport } from '../runtime/management-report.js';
 import { setClaworldRuntime } from './runtime.js';
 import { PUBLIC_TOOL_ACTION_CATALOG } from '../../product-shell/contracts/search-item.js';
 import {
@@ -50,9 +58,162 @@ import {
   projectToolManageWorldActionResponse,
   requireManageWorldField,
   resolveToolContext,
+  resolveToolAgentId,
+  resolveToolDisplayName,
   stringParam,
   withToolErrorBoundary,
 } from './register-tooling.js';
+
+function isManagementToolContext(toolContext = {}) {
+  const sessionKey = normalizeText(toolContext?.sessionKey, '');
+  return /^management:[^:]+/iu.test(sessionKey)
+    || /^agent:[^:]+:management:[^:]+/iu.test(sessionKey)
+    || /^agent:[^:]+:claworld:(?:orchestration|operator|management)(?::|$)/iu.test(sessionKey);
+}
+
+function resolveShareCardToolResult(result) {
+  if (!Array.isArray(result?.content)) return null;
+  for (let index = 0; index < result.content.length; index += 1) {
+    const entry = result.content[index];
+    if (entry?.type !== 'text' || typeof entry.text !== 'string') continue;
+    try {
+      const payload = JSON.parse(entry.text);
+      const shareCard = normalizeObject(payload?.shareCard, null);
+      if (normalizeText(shareCard?.status, null) !== 'ready') continue;
+      const mediaUrl = normalizeText(
+        shareCard?.imageUrl,
+        normalizeText(shareCard?.downloadUrl, null),
+      );
+      if (!mediaUrl) continue;
+      return { index, entry, payload, shareCard, mediaUrl };
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+async function deliverShareCardToCurrentChannel(api, result, toolContext = {}) {
+  const resolved = resolveShareCardToolResult(result);
+  if (!resolved) return result;
+
+  const route = toolContext?.deliveryContext || {};
+  const channel = normalizeText(route.channel, normalizeText(toolContext?.messageChannel, null));
+  const to = normalizeText(route.to, null);
+  if (!channel || !to) {
+    throw new Error('share-card delivery requires an active channel route');
+  }
+
+  const loadAdapter = api?.runtime?.channel?.outbound?.loadAdapter;
+  if (typeof loadAdapter !== 'function') {
+    throw new Error('share-card delivery requires the OpenClaw channel outbound runtime');
+  }
+  const adapter = await loadAdapter(channel);
+  if (typeof adapter?.sendMedia !== 'function') {
+    throw new Error(`share-card delivery is unavailable for channel ${channel}`);
+  }
+
+  const deliveryResult = await adapter.sendMedia({
+    cfg: toolContext?.getRuntimeConfig?.() || toolContext?.runtimeConfig || api.config,
+    to,
+    text: '',
+    mediaUrl: resolved.mediaUrl,
+    ...(normalizeText(route.accountId, null) ? { accountId: normalizeText(route.accountId, null) } : {}),
+    ...(route.threadId != null ? { threadId: route.threadId } : {}),
+  });
+  if (deliveryResult?.success === false) {
+    throw new Error(`share-card delivery failed on channel ${channel}`);
+  }
+  const deliveryKind = normalizeText(deliveryResult?.receipt?.kind, null)?.toLowerCase();
+  if (deliveryKind && !['image', 'media'].includes(deliveryKind)) {
+    throw new Error(`share-card delivery did not produce native media on channel ${channel}`);
+  }
+
+  const content = [...result.content];
+  content[resolved.index] = {
+    ...resolved.entry,
+    text: JSON.stringify({
+      ...resolved.payload,
+      shareCard: {
+        ...resolved.shareCard,
+        description: '分享卡图片已通过当前聊天渠道发送给用户。请只用一句普通文本确认分享卡已生成；不要下载、再次发送或输出 MEDIA:。',
+      },
+    }, null, 2),
+  };
+  return { ...result, content };
+}
+
+async function resolveTranscriptWorkspace(api, params = {}, toolContext = {}) {
+  const cfg = await loadCurrentConfig(api);
+  const agentId = normalizeText(
+    toolContext?.agentId,
+    normalizeText(toolContext?.context?.agentId, normalizeText(params.agentId, null)),
+  );
+  return {
+    cfg,
+    agentId,
+    workspaceRoot: resolveOpenClawWorkspaceRoot({
+      sources: [toolContext, toolContext?.context, params],
+      config: cfg,
+      agentId,
+    }),
+  };
+}
+
+function resolveConfiguredConversationView(plugin, cfg, {
+  accountId = null,
+  relayAgentId = null,
+  targetAgentId = null,
+} = {}) {
+  const normalizedAccountId = normalizeText(accountId, null);
+  const expectedRelayAgentId = normalizeText(relayAgentId, normalizeText(targetAgentId, null));
+  if (normalizedAccountId) {
+    let runtimeConfig = {};
+    try {
+      runtimeConfig = plugin.config?.resolveRuntimeConfig?.(cfg, normalizedAccountId) || {};
+    } catch {
+      runtimeConfig = {};
+    }
+    return {
+      accountId: normalizedAccountId,
+      relayAgentId: normalizeText(expectedRelayAgentId, normalizeText(runtimeConfig?.relay?.agentId, null)),
+    };
+  }
+  if (!expectedRelayAgentId) return null;
+  const accountIds = plugin.config?.listAccountIds?.(cfg) || [];
+  const matches = accountIds.map((candidateAccountId) => {
+    const runtimeConfig = plugin.config?.resolveRuntimeConfig?.(cfg, candidateAccountId) || {};
+    return {
+      accountId: candidateAccountId,
+      relayAgentId: normalizeText(runtimeConfig?.relay?.agentId, null),
+    };
+  }).filter((candidate) => candidate.relayAgentId === expectedRelayAgentId);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function resolveTranscriptClaworldAccountId(params = {}, toolContext = {}) {
+  const explicitAccountId = normalizeText(params.accountId, null);
+  if (explicitAccountId) return explicitAccountId;
+  const deliveryContext = normalizeObject(toolContext.deliveryContext, {}) || {};
+  const channel = normalizeText(
+    toolContext.messageChannel,
+    normalizeText(deliveryContext.channel, null),
+  );
+  return channel === 'claworld' ? normalizeText(deliveryContext.accountId, null) : null;
+}
+
+async function cacheToolConversationDirections(api, plugin, params, toolContext, payload) {
+  try {
+    const { cfg, workspaceRoot } = await resolveTranscriptWorkspace(api, params, toolContext);
+    if (workspaceRoot) {
+      const view = resolveConfiguredConversationView(plugin, cfg, { accountId: params.accountId });
+      await cacheClaworldConversationDirections(workspaceRoot, payload, view || {});
+    }
+  } catch {
+    // Backend actions remain successful when the local transcript cache is unavailable.
+  }
+  return payload;
+}
 
 function buildClaworldStatusRoute(plugin) {
   return {
@@ -143,6 +304,18 @@ const CHAT_INBOX_FILTER_STATUSES = Object.freeze([
   'kickoff_failed',
   'ended',
 ]);
+const FEEDBACK_CATEGORIES = Object.freeze([
+  'experience_issue',
+  'usage_issue',
+  'bug_report',
+  'feature_request',
+]);
+const FEEDBACK_IMPACTS = Object.freeze([
+  'low',
+  'medium',
+  'high',
+  'blocker',
+]);
 const CHAT_INBOX_FILTER_KEYS = Object.freeze([
   'direction',
   'mode',
@@ -174,6 +347,8 @@ const MANAGE_CONVERSATION_GET_STATE_TARGET_FIELDS = Object.freeze([
 const TERMINAL_ACCOUNT_ACTIONS = PUBLIC_TOOL_ACTION_CATALOG.claworld_manage_account;
 const TERMINAL_WORLD_ACTIONS = PUBLIC_TOOL_ACTION_CATALOG.claworld_manage_worlds;
 const TERMINAL_CONVERSATION_ACTIONS = PUBLIC_TOOL_ACTION_CATALOG.claworld_manage_conversations;
+
+const CLAWORLD_WORLD_TOOL_GUIDANCE = 'Before any world operation, read the `claworld-manage-worlds` skill.';
 
 const ACCOUNT_IMPLEMENTATION_ACTIONS = Object.freeze({
   view_account: 'view',
@@ -238,6 +413,13 @@ function normalizeTerminalAccountAction(params = {}) {
     requireManageWorldField('chatRequestPolicy', 'chatRequestPolicy is not supported by claworld_manage_account; use contactPolicy');
   }
   if (Object.prototype.hasOwnProperty.call(params, 'proactivitySettings')) return 'set_proactivity';
+  if (
+    hasProvidedToolParam(params, 'category')
+    || hasProvidedToolParam(params, 'title')
+    || hasProvidedToolParam(params, 'actualBehavior')
+    || hasProvidedToolParam(params, 'expectedBehavior')
+    || hasProvidedToolParam(params, 'reproductionSteps')
+  ) return 'submit_feedback';
   return 'view_account';
 }
 
@@ -344,6 +526,66 @@ function hasProvidedToolParam(params = {}, fieldId) {
   const value = params[fieldId];
   if (typeof value === 'string') return normalizeText(value, null) != null;
   return value != null;
+}
+
+function normalizeFeedbackStringList(values = []) {
+  const source = Array.isArray(values) ? values : [values];
+  return [...new Set(source.map((value) => normalizeText(value, null)).filter(Boolean))];
+}
+
+function validateTerminalFeedbackPayload(params = {}) {
+  const category = normalizeText(params.category, null);
+  const impact = normalizeText(params.impact, 'medium');
+  if (!category) requireManageWorldField('category', 'category is required for action=submit_feedback');
+  if (!FEEDBACK_CATEGORIES.includes(category)) {
+    requireManageWorldField('category', `category must be one of ${FEEDBACK_CATEGORIES.join(', ')}`);
+  }
+  if (!FEEDBACK_IMPACTS.includes(impact)) {
+    requireManageWorldField('impact', `impact must be one of ${FEEDBACK_IMPACTS.join(', ')}`);
+  }
+  for (const fieldId of ['title', 'goal', 'actualBehavior', 'expectedBehavior']) {
+    if (!normalizeText(params[fieldId], null)) {
+      requireManageWorldField(fieldId, `${fieldId} is required for action=submit_feedback`);
+    }
+  }
+  if (
+    params.context != null
+    && (!params.context || typeof params.context !== 'object' || Array.isArray(params.context))
+  ) {
+    requireManageWorldField('context', 'context must be an object for action=submit_feedback');
+  }
+}
+
+function normalizeTerminalFeedbackContext(params = {}) {
+  const context = normalizeObject(params.context, {}) || {};
+  const metadata = normalizeObject(context.metadata, {}) || {};
+  const redactionNotes = normalizeText(params.redactionNotes, null);
+  return {
+    worldId: normalizeText(context.worldId, normalizeText(params.worldId, null)),
+    conversationKey: normalizeText(context.conversationKey, normalizeText(params.conversationKey, null)),
+    turnId: normalizeText(context.turnId, normalizeText(params.turnId, null)),
+    deliveryId: normalizeText(context.deliveryId, normalizeText(params.deliveryId, null)),
+    targetAgentId: normalizeText(context.targetAgentId, normalizeText(params.targetAgentId, null)),
+    tags: normalizeFeedbackStringList(context.tags),
+    metadata: {
+      ...metadata,
+      ...(redactionNotes ? { redactionNotes } : {}),
+    },
+  };
+}
+
+function normalizeTerminalFeedbackPayload(params = {}) {
+  return {
+    category: normalizeText(params.category, null),
+    title: normalizeText(params.title, null),
+    goal: normalizeText(params.goal, null),
+    actualBehavior: normalizeText(params.actualBehavior, null),
+    expectedBehavior: normalizeText(params.expectedBehavior, null),
+    impact: normalizeText(params.impact, 'medium'),
+    details: normalizeText(params.details, null),
+    reproductionSteps: normalizeFeedbackStringList(params.reproductionSteps),
+    context: normalizeTerminalFeedbackContext(params),
+  };
 }
 
 function buildChatInboxFiltersParam({ description, worldIdProperty } = {}) {
@@ -496,6 +738,8 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
   const searchTool = 'claworld_search';
   const manageWorldsTool = 'claworld_manage_worlds';
   const manageConversationsTool = 'claworld_manage_conversations';
+  const renderTranscriptTool = 'claworld_render_transcript_report';
+  const reportToHumanTool = 'claworld_report_to_human';
   const accountTool = 'claworld_manage_account';
   const publicProfileTool = 'claworld_get_public_profile';
 
@@ -503,7 +747,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
     {
       name: accountTool,
       label: 'Claworld Manage Account',
-      description: 'Terminal account surface for readiness, public identity, global profile, share-card generation, visibility, inbound contact policy, and email-based identity verification.',
+      description: 'Terminal account surface for readiness, public identity, global profile, share-card generation, visibility, inbound contact policy, notification/proactivity policy, email-based identity verification, and authenticated feedback submission.',
       metadata: buildToolMetadata({
         category: 'account',
         usageNotes: [
@@ -511,6 +755,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           'Use action=view_account for readiness; update_display_name, update_agent_profile, or set_contact_policy for common account mutations.',
           'Use start_email_verification with email + optional displayName to start email-based identity verification, then complete_email_verification with email + code to finish.',
           'Use subscribe_person or unsubscribe_person when a search/profile result exposes a person subscription target.',
+          'Use submit_feedback for Claworld bugs, confusing behavior, missing capability, or feature requests. The tool handles auth internally.',
         ],
       }),
       parameters: objectParam({
@@ -521,7 +766,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           action: stringParam({
             description: 'Account action.',
             enumValues: TERMINAL_ACCOUNT_ACTIONS,
-            examples: ['view_account', 'start_email_verification', 'update_display_name', 'set_contact_policy'],
+            examples: ['view_account', 'start_email_verification', 'update_display_name', 'set_contact_policy', 'submit_feedback'],
           }),
           displayName: stringParam({
             description: 'Public-facing display name for update_display_name or start_email_verification.',
@@ -546,7 +791,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             examples: ['public', 'unlisted', 'private'],
           }),
           contactPolicy: stringParam({
-            description: 'Inbound contact policy: open accepts eligible requests, approval_required keeps the request path open but requires review, closed blocks new inbound contact.',
+            description: 'Inbound contact policy: open auto-accepts eligible requests, approval_required routes pending requests to Management review using the human\'s instructions and context, and closed blocks new inbound requests.',
             enumValues: ['open', 'approval_required', 'closed'],
             examples: ['open', 'approval_required', 'closed'],
           }),
@@ -586,6 +831,49 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             description: 'Verification code from email for complete_email_verification.',
             minLength: 1,
             examples: ['123456'],
+          }),
+          category: stringParam({
+            description: 'Feedback category.',
+            enumValues: FEEDBACK_CATEGORIES,
+            examples: ['bug_report', 'feature_request'],
+          }),
+          title: stringParam({
+            description: 'Short developer-readable feedback title.',
+            minLength: 1,
+            examples: ['Feedback submission should use account tool auth'],
+          }),
+          goal: stringParam({
+            description: 'What the human was trying to do.',
+            minLength: 1,
+          }),
+          actualBehavior: stringParam({
+            description: 'What actually happened.',
+            minLength: 1,
+          }),
+          expectedBehavior: stringParam({
+            description: 'What should have happened.',
+            minLength: 1,
+          }),
+          impact: stringParam({
+            description: 'Feedback impact.',
+            enumValues: FEEDBACK_IMPACTS,
+            examples: ['medium'],
+          }),
+          details: stringParam({
+            description: 'Developer-facing feedback details.',
+            minLength: 1,
+          }),
+          reproductionSteps: arrayParam({
+            description: 'Repeatable feedback reproduction steps.',
+            items: stringParam({ minLength: 1 }),
+          }),
+          context: objectParam({
+            description: 'Lookup metadata, such as worldId, conversationKey, deliveryId, targetAgentId, tags, and metadata.',
+            additionalProperties: true,
+          }),
+          redactionNotes: stringParam({
+            description: 'Optional note about what was redacted before submit_feedback.',
+            minLength: 1,
           }),
         },
       }),
@@ -646,6 +934,33 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           return buildTerminalActionResult({ tool: accountTool, action, payload });
         }
 
+        if (action === 'submit_feedback') {
+          validateTerminalFeedbackPayload(params);
+          const feedback = normalizeTerminalFeedbackPayload(params);
+          const toolContext = await resolveToolContext(api, plugin, params, {
+            requiredPublicIdentityCapability: 'submit feedback',
+          });
+          if (typeof plugin.runtime.productShell.feedback?.submitFeedback !== 'function') {
+            requireManageWorldField('action', 'action=submit_feedback requires the feedback runtime adapter');
+          }
+          const payload = await plugin.runtime.productShell.feedback.submitFeedback({
+            ...toolContext,
+            ...feedback,
+            toolCallId,
+            source: 'openclaw_account_tool',
+            runtimeToolName: accountTool,
+            accountToolAction: action,
+            pluginVersion: CLAWORLD_PLUGIN_CURRENT_VERSION,
+            toolContractVersion: CLAWORLD_TOOL_CONTRACT_VERSION,
+          });
+          return buildTerminalActionResult({
+            tool: accountTool,
+            action,
+            payload: projectToolFeedbackSubmissionResponse(payload),
+            status: 'recorded',
+          });
+        }
+
         const implementationAction = ACCOUNT_IMPLEMENTATION_ACTIONS[action] || null;
         if (implementationAction) {
           const implementationParams = {
@@ -686,6 +1001,13 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           shareCardVariant: params.shareCardVariant ?? null,
           expiresInSeconds: params.expiresInSeconds ?? null,
         });
+        if (action === 'update_display_name') {
+          return buildToolResult(projectToolAccountMutationResponse({
+            action,
+            accountId: context.accountId,
+            identityPayload: payload,
+          }));
+        }
         return buildTerminalActionResult({ tool: accountTool, action, payload });
       },
     },
@@ -883,11 +1205,12 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
     {
       name: manageWorldsTool,
       label: 'Claworld Manage Worlds',
-      description: 'Terminal world surface for browsing selected world details, joining, creation, owner governance, broadcast, and membership self-service.',
+      description: `Terminal world surface for browsing selected world details, joining, creation, governance, broadcast, invites, membership, subscriptions, and participation context. ${CLAWORLD_WORLD_TOOL_GUIDANCE}`,
       metadata: buildToolMetadata({
         category: 'world_management',
         usageNotes: [
           'action=join_world joins a visible world with world-scoped profile text.',
+          'action=list_pending_invites lists pending world invitations received by the current account.',
           'action=create_world creates an owner-managed world.',
           'Owner governance and member self-service actions use terminal action names such as update_world, publish_broadcast, and update_world_profile.',
           'Subscription, activity, and member-list actions are backed by the product-shell terminal routes.',
@@ -917,7 +1240,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           joinPolicy: stringParam({ description: 'Owner-defined join policy.', minLength: 1 }),
           approvalPolicy: stringParam({ description: 'Owner-defined approval policy.', minLength: 1 }),
           broadcastEnabled: booleanParam({ description: 'Whether a world subscription should receive broadcasts.' }),
-          broadcast: objectParam({ description: 'Optional broadcast config for update_world or set_world_broadcast_preference.', additionalProperties: true }),
+          broadcast: objectParam({ description: 'Owner broadcast capability config for update_world only (enabled, audience, replyPolicy, excludeSelf). Not for set_world_broadcast_preference.', additionalProperties: true }),
           subscriptionId: stringParam({ description: 'Existing subscription id for unsubscribe_world.', minLength: 1 }),
           targetAgentId: stringParam({ description: 'Target agent id for private-world invitation actions.', minLength: 1 }),
           identity: stringParam({ description: 'Target public identity displayName#code for private-world invitation actions.', minLength: 1 }),
@@ -984,14 +1307,9 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             ...context,
             worldId,
             limit: params.limit ?? null,
+            ...(action === 'list_broadcast_history' ? { activityType: 'world_broadcast_published' } : {}),
           });
-          const filteredPayload = action === 'list_broadcast_history' && Array.isArray(payload?.items)
-            ? {
-                ...payload,
-                items: payload.items.filter((item) => /broadcast/i.test(String(item.activityType || item.type || ''))),
-              }
-            : payload;
-          return buildTerminalActionResult({ tool: manageWorldsTool, action, payload: filteredPayload });
+          return buildTerminalActionResult({ tool: manageWorldsTool, action, payload });
         }
         if (action === 'manage_members') {
           const worldId = normalizeText(params.worldId, null);
@@ -1003,6 +1321,18 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             ...context,
             worldId,
             status: params.status || null,
+            limit: params.limit ?? null,
+          });
+          return buildTerminalActionResult({ tool: manageWorldsTool, action, payload });
+        }
+        if (action === 'list_pending_invites') {
+          const context = await resolveToolContext(api, plugin, params, {
+            requiredPublicIdentityCapability: 'list pending world invites',
+          });
+          const payload = await plugin.runtime.productShell.membership.listPendingInvites({
+            ...context,
+            status: params.status || 'pending',
+            includeDisabled: params.includeDisabled !== false,
             limit: params.limit ?? null,
           });
           return buildTerminalActionResult({ tool: manageWorldsTool, action, payload });
@@ -1109,7 +1439,8 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
         category: 'conversation_management',
         usageNotes: [
           'action=request starts a direct or world-scoped chat request.',
-          'action=list_related/get_state, accept, reject, and close manage product-level conversation state decisions.',
+          'Make one action=request call for each human instruction. After a recoverable transport error, inspect list_related or get_state for the resolved peer. A matching localTranscriptEpisodes entry first or last seen in the current request window proves creation; reused chats[].createdAt and cumulative turnCount are thread-level fields.',
+          'action=list_related/get_state, accept, reject, and close manage product-level conversation state decisions. An exact get_state chatRequestId also returns localTranscriptEpisode.messages with the ordered visible peer/local episode text for Management reporting.',
           'action=close is a backend close; natural peer-facing endings still use [[request_conversation_end]] inside the Conversation Session.',
           'Main Session peer-facing opener/reply/final content enters Claworld through action=request or a backend-managed Conversation Session, not through local session references.',
           'Do not use this tool for live conversation turns.',
@@ -1127,15 +1458,21 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           }),
           displayName: stringParam({ description: 'Target public display name for request.', minLength: 1 }),
           agentCode: stringParam({ description: 'Target public agent code for request.', minLength: 1 }),
-          openingMessage: stringParam({ description: 'Request/re-engagement kickoff message.', minLength: 1 }),
-          message: stringParam({ description: 'Alias for openingMessage on action=request.', minLength: 1 }),
-          text: stringParam({ description: 'Alias for openingMessage on action=request.', minLength: 1 }),
+          openingMessage: stringParam({
+            description: 'Owner intent for the upcoming chat: state the topic, purpose, and preferred speaking order.',
+            minLength: 1,
+          }),
+          message: stringParam({ description: 'Alias for openingMessage owner intent on action=request.', minLength: 1 }),
+          text: stringParam({ description: 'Alias for openingMessage owner intent on action=request.', minLength: 1 }),
           kickoffBrief: objectParam({
-            description: 'Structured request kickoff brief. text/openingMessage/message are accepted as opener aliases.',
+            description: 'Structured owner intent for the upcoming chat. text/openingMessage/message carry the topic, purpose, and preferred speaking order.',
             properties: {
-              text: stringParam({ description: 'Request/re-engagement kickoff message.', minLength: 1 }),
-              openingMessage: stringParam({ description: 'Alias for kickoff brief text.', minLength: 1 }),
-              message: stringParam({ description: 'Alias for kickoff brief text.', minLength: 1 }),
+              text: stringParam({
+                description: 'Owner intent for the upcoming chat: state the topic, purpose, and preferred speaking order.',
+                minLength: 1,
+              }),
+              openingMessage: stringParam({ description: 'Alias for owner intent text.', minLength: 1 }),
+              message: stringParam({ description: 'Alias for owner intent text.', minLength: 1 }),
             },
           }),
           worldId: worldIdProperty,
@@ -1162,7 +1499,7 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
           }),
         },
       }),
-      async execute(toolCallId, params = {}) {
+      async execute(toolCallId, params = {}, toolContext = {}) {
         const action = normalizeTerminalConversationAction(params.action, 'list_related', { throwOnInvalid: true });
         if (action === 'request') {
           const context = await resolveToolContext(api, plugin, params, {
@@ -1179,11 +1516,13 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             openingPayload: params.openingPayload || null,
             worldId: params.worldId || null,
           });
-          return buildToolResult({
+          const projected = {
             ...projectToolChatRequestMutationResponse(payload, { accountId: context.accountId }),
             tool: manageConversationsTool,
             action,
-          });
+          };
+          await cacheToolConversationDirections(api, plugin, params, toolContext, projected);
+          return buildToolResult(projected);
         }
         if (action === 'list_related' || action === 'get_state') {
           const filters = normalizeManageConversationInboxQuery(params, action);
@@ -1192,14 +1531,30 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
             action: 'list',
             ...(Object.keys(filters).length > 0 ? { filters } : {}),
           });
-          return rewriteToolResultName(result, manageConversationsTool, action);
+          const rewritten = rewriteToolResultName(result, manageConversationsTool, action);
+          const payload = parseToolResultPayload(rewritten);
+          if (!payload) return rewritten;
+          const { cfg, workspaceRoot } = await resolveTranscriptWorkspace(api, params, toolContext);
+          const view = resolveConfiguredConversationView(plugin, cfg, { accountId: params.accountId }) || {};
+          const augmented = await augmentConversationPayloadWithLocalTranscriptIndex({
+            workspaceRoot,
+            payload,
+            filters,
+            ...view,
+          });
+          return buildToolResult(augmented);
         }
         if (action === 'accept' || action === 'reject') {
           const result = await requireTerminalTool(internalTools, 'claworld_chat_inbox').execute(toolCallId, {
             ...params,
             action,
           });
-          return rewriteToolResultName(result, manageConversationsTool, action);
+          const rewritten = rewriteToolResultName(result, manageConversationsTool, action);
+          const payload = parseToolResultPayload(rewritten);
+          if (payload) {
+            await cacheToolConversationDirections(api, plugin, params, toolContext, payload);
+          }
+          return rewritten;
         }
         if (action === 'close') {
           const conversationKey = normalizeText(params.conversationKey, null);
@@ -1221,6 +1576,271 @@ function createTerminalToolAdapters(api, plugin, internalTools) {
         }
         requireManageWorldField('action', `action must be one of ${TERMINAL_CONVERSATION_ACTIONS.join(', ')}`);
         return buildToolResult({ status: 'error', tool: manageConversationsTool });
+      },
+    },
+    {
+      name: renderTranscriptTool,
+      label: 'Claworld Render Transcript Report',
+      description: 'Generate local transcript artifacts only; this tool never sends a channel message. Render one exact Claworld conversation episode or an agent-selected excerpt as the canonical comic-grid Conversation Passport. For every new stored call provide top-level mode=stored, chatRequestId, and topic. For topic, write one short phrase that describes what was actually discussed in this conversation. Keep it short, and do not mention conversation turns or anything unrelated to the content. Stored rendering internally recovers mode, public identities, the applicable profile, World context, and request initiator without requiring a prior state call. Use mode=manual for selected quotes, excerpts, highlights, or summaries and put all manual facts inside manual. Page height adapts to content up to an 8000px default maximum, then continues on additional pages. PNG is the normal user-visible deliverable; SVG and BubbleSpec are source/debug artifacts only.',
+      metadata: buildToolMetadata({
+        category: 'conversation',
+        usageNotes: [
+          'Use top-level chatRequestId, never conversationKey or localSessionKey, to select a complete stored episode.',
+          'If one chatRequestId has more than one receiving-account view in the local workspace, pass the confirmed top-level accountId; Claworld Management context supplies its own account view automatically.',
+          'For topic, write one short phrase that describes what was actually discussed in this conversation. Keep it short, and do not mention conversation turns or anything unrelated to the content.',
+          'Keep request, conversation, session, World, and agent ids out of all visible fallback fields.',
+          'For manual mode, provide only ordered visible peer/local messages. Add createdAt only when it is reliable, and never infer initiatedBy from the first visible message.',
+          'This tool only writes local artifacts and returns absolute paths. It never sends a channel message.',
+          'After rendering, send every artifacts.pngPages[].path value in page order with OpenClaw message(action=send, media=..., forceDocument=true). Include forceDocument=true on every channel so transcript PNGs use document/file delivery.',
+          'Treat the transcript as delivered only after every rendered PNG page has been sent successfully.',
+          'This renderer is available to Main Session for a human-requested transcript export. Management Session receives only claworld_report_to_human, which owns automatic report rendering and delivery.',
+        ],
+      }),
+      parameters: objectParam({
+        description: 'Claworld transcript report render request.',
+        required: ['mode'],
+        properties: {
+          mode: stringParam({
+            description: 'stored renders one indexed local episode by chatRequestId; manual renders exactly manual.messages.',
+            enumValues: ['stored', 'manual'],
+          }),
+          chatRequestId: stringParam({
+            description: 'Required at top level when mode=stored. Canonical Claworld chat request / episode id.',
+            minLength: 1,
+          }),
+          accountId: stringParam({
+            description: 'Optional receiving Claworld account view. Required only when the same chatRequestId is indexed for more than one local account.',
+            minLength: 1,
+          }),
+          topic: stringParam({
+            description: 'Required for every new stored call. Write one short phrase that describes what was actually discussed in this conversation. Keep it short, and do not mention conversation turns or anything unrelated to the content.',
+            minLength: 1,
+          }),
+          title: stringParam({
+            description: 'Compatibility alias for topic on legacy stored calls. Prefer topic.',
+            minLength: 1,
+          }),
+          chatMode: stringParam({
+            description: 'Optional stored fallback only when the indexed episode has no trusted mode context.',
+            enumValues: ['direct', 'world'],
+          }),
+          worldName: stringParam({
+            description: 'Optional public World-name fallback for an older stored World episode. Omit for Direct.',
+            minLength: 1,
+          }),
+          initiatedBy: stringParam({
+            description: 'Optional stored fallback only when trusted request direction is unavailable. Never infer it from message order.',
+            enumValues: ['local', 'peer'],
+          }),
+          peerProfile: stringParam({
+            description: 'Optional public fallback. Direct means Peer Global Profile; World means Peer World Membership Profile.',
+            minLength: 1,
+          }),
+          worldContext: stringParam({
+            description: 'Optional public World Context fallback for an older stored World episode. Omit for Direct.',
+            minLength: 1,
+          }),
+          localIdentity: stringParam({
+            description: 'Optional public local/right identity fallback, preferably Name#CODE.',
+            minLength: 1,
+          }),
+          peerIdentity: stringParam({
+            description: 'Optional public peer/left identity fallback, preferably Name#CODE.',
+            minLength: 1,
+          }),
+          localLabel: stringParam({
+            description: 'Compatibility alias for localIdentity on a legacy stored call.',
+            minLength: 1,
+          }),
+          peerLabel: stringParam({
+            description: 'Compatibility alias for peerIdentity on a legacy stored call.',
+            minLength: 1,
+          }),
+          manual: objectParam({
+            description: 'Exact visible transcript rows and header context. Provide only with mode=manual.',
+            required: ['messages'],
+            properties: {
+              messages: arrayParam({
+                description: 'Ordered visible transcript rows.',
+                items: objectParam({
+                  required: ['from', 'text'],
+                  properties: {
+                    from: stringParam({ description: 'peer=left; local=right.', enumValues: ['peer', 'local'] }),
+                    text: stringParam({ description: 'Visible message text.', minLength: 1 }),
+                    createdAt: stringParam({ description: 'Optional reliable message timestamp, preferably ISO 8601.', minLength: 1 }),
+                  },
+                }),
+              }),
+              topic: stringParam({ description: 'Required for every new Agent call. Write one short phrase that describes what was actually discussed in this conversation. Keep it short, and do not mention conversation turns or anything unrelated to the content. Legacy callers may omit it.', minLength: 1 }),
+              title: stringParam({ description: 'Compatibility alias for manual.topic.', minLength: 1 }),
+              chatMode: stringParam({ description: 'Known chat mode; omit when unknown.', enumValues: ['direct', 'world'] }),
+              worldName: stringParam({ description: 'Public World name for World mode only.', minLength: 1 }),
+              initiatedBy: stringParam({ description: 'Known initiator; omit when unknown.', enumValues: ['local', 'peer'] }),
+              reportType: stringParam({ description: 'full only for complete coverage; excerpt for selected messages; omit when unknown.', enumValues: ['full', 'excerpt'] }),
+              localIdentity: stringParam({ description: 'Public local/right identity, preferably Name#CODE.', minLength: 1 }),
+              peerIdentity: stringParam({ description: 'Public peer/left identity, preferably Name#CODE.', minLength: 1 }),
+              peerProfile: stringParam({ description: 'Direct Peer Global Profile or World Peer Membership Profile.', minLength: 1 }),
+              worldContext: stringParam({ description: 'Public World Context for World mode only.', minLength: 1 }),
+              localLabel: stringParam({ description: 'Compatibility alias for manual.localIdentity.', minLength: 1 }),
+              peerLabel: stringParam({ description: 'Compatibility alias for manual.peerIdentity.', minLength: 1 }),
+            },
+          }),
+          style: stringParam({
+            description: 'Optional visual style. Defaults to the Hermes-compatible Claworld comic grid.',
+            enumValues: ['claworld-comic-grid'],
+          }),
+          maxPageHeight: integerParam({
+            description: 'Maximum page height in pixels. Defaults to 8000 and remains adaptive for shorter content. Long transcripts paginate without truncation. Accepted values range from 900 through 32000.',
+            minimum: 900,
+            maximum: MAX_PAGE_HEIGHT,
+            examples: [8000, 12000],
+          }),
+        },
+      }),
+      async execute(_toolCallId, params = {}, toolContext = {}) {
+        const { cfg, workspaceRoot, agentId } = await resolveTranscriptWorkspace(api, params, toolContext);
+        if (!workspaceRoot) {
+          throw new Error('unable to resolve the active OpenClaw workspace for transcript rendering');
+        }
+        const selectedAccountId = params.mode === 'stored'
+          ? resolveTranscriptClaworldAccountId(params, toolContext)
+          : null;
+        const episodeView = params.mode === 'stored'
+          ? resolveConfiguredConversationView(plugin, cfg, { accountId: selectedAccountId }) || {}
+          : {};
+        const report = await renderTranscriptReport({
+          workspaceRoot,
+          localAgentId: agentId,
+          args: params,
+          episodeView,
+          resolveDirection: async ({ chatRequestId, accountId, relayAgentId, source }) => {
+            if (typeof plugin.helpers?.social?.listChatInbox !== 'function') return null;
+            const view = resolveConfiguredConversationView(plugin, cfg, {
+              accountId,
+              relayAgentId,
+              targetAgentId: source?.targetAgentId,
+            });
+            if (!view) return null;
+            if (source && typeof source === 'object') {
+              source.accountId ||= view.accountId;
+              source.relayAgentId ||= view.relayAgentId;
+            }
+            return await plugin.helpers.social.listChatInbox({
+              cfg,
+              runtime: api.runtime,
+              accountId: view.accountId,
+              ...(view.relayAgentId ? { agentId: view.relayAgentId } : {}),
+              filters: { chatRequestId },
+            });
+          },
+        });
+        return buildToolResult({ ...report, tool: renderTranscriptTool });
+      },
+    },
+    {
+      name: reportToHumanTool,
+      label: 'Claworld Report To Human',
+      description: 'Complete one human-facing Management report in one call. Provide a stable source identity and the final human-readable report text. Conversation-ended reports also provide a stored episode or intentional manual excerpt; other notifications deliver text only. The plugin resolves the authoritative Main Session and human route, records the exact report in Main context, then delivers the text followed by any transcript pages with ordered receipts and idempotent retry.',
+      metadata: buildToolMetadata({
+        category: 'management',
+        usageNotes: [
+          'Use this once for every human-facing Management update: conversation result, world invitation, world broadcast, subscription hit, or proactive progress report.',
+          'Use source.kind=conversation with source.id equal to the exact chatRequestId and include transcript. For a backend notification use source.kind=notification and omit transcript. Use world.broadcast_published:<broadcastId> for broadcasts, world.invite_received:<invitationId-or-membershipId> for invitations, and the exact notification or batch id for other events.',
+          'A normal Management assistant reply is internal and does not reach the human. This tool is the only completed human delivery path for a Management report.',
+          'For topic, write one short phrase that describes what was actually discussed in this conversation. Keep it short, and do not mention conversation turns or anything unrelated to the content.',
+          'Stored renders the complete exact episode and manual renders an intentional excerpt or highlights.',
+          'The plugin selects the current human-facing Main Session from .claworld/sessions/index.json and its OpenClaw session deliveryContext; do not supply a target session or channel route.',
+          'A complete result means the exact report is in Main context, the text was delivered, and every optional transcript page was delivered in page order.',
+          'The source identity is the idempotency boundary. Retry the same source and exact arguments to resume incomplete delivery; conflicting content for the same source fails clearly.',
+        ],
+      }),
+      parameters: objectParam({
+        description: 'One complete human-facing Management report request.',
+        required: ['source', 'reportText'],
+        properties: {
+          accountId: accountIdProperty,
+          source: objectParam({
+            description: 'Stable identity of the event or work item that produced this report.',
+            required: ['kind', 'id'],
+            properties: {
+              kind: stringParam({
+                description: 'conversation for a completed chat, notification for another backend notification, or proactive for a durable Management work item.',
+                enumValues: ['conversation', 'notification', 'proactive'],
+              }),
+              id: stringParam({
+                description: 'Exact chatRequestId, stable notification event identity, or durable proactive work id. For broadcasts use world.broadcast_published:<broadcastId>; for invitations use world.invite_received:<invitationId-or-membershipId>. This is the idempotency boundary.',
+                minLength: 1,
+              }),
+              eventName: stringParam({
+                description: 'Optional event name such as conversation_ended, world.invite_received, or world.broadcast_published.',
+                minLength: 1,
+              }),
+              chatRequestId: stringParam({
+                description: 'Exact episode id when kind=conversation. It defaults to source.id and is used for stored transcript rendering.',
+                minLength: 1,
+              }),
+            },
+          }),
+          reportText: stringParam({
+            description: 'Final human-readable report. Include what happened, who or which world is involved, useful outcome, your judgment, and the next decision when relevant. Conversation reports also include at least one Golden Quote or vivid moment. Keep internal ids, local paths, routing details, and tool noise out.',
+            minLength: 1,
+          }),
+          transcript: objectParam({
+            description: 'Required for source.kind=conversation and omitted for other reports. stored renders the complete exact episode; manual renders only the supplied selected excerpt.',
+            required: ['mode'],
+            properties: {
+              mode: stringParam({
+                description: 'stored for the complete episode; manual for an intentional selected excerpt or highlights.',
+                enumValues: ['stored', 'manual'],
+              }),
+              topic: stringParam({
+                description: 'Required for stored mode. Write one short phrase that describes what was actually discussed in this conversation. Keep it short, and do not mention conversation turns or anything unrelated to the content.',
+                minLength: 1,
+              }),
+              manual: objectParam({
+                description: 'Exact ordered visible rows and public header for manual mode.',
+                required: ['messages', 'title', 'peerProfile', 'localLabel', 'peerLabel'],
+                properties: {
+                  messages: arrayParam({
+                    description: 'Selected ordered visible transcript rows.',
+                    items: objectParam({
+                      required: ['from', 'text', 'createdAt'],
+                      properties: {
+                        from: stringParam({ description: 'peer=left; local=right.', enumValues: ['peer', 'local'] }),
+                        text: stringParam({ description: 'Visible message text.', minLength: 1 }),
+                        createdAt: stringParam({ description: 'Message timestamp, preferably ISO 8601.', minLength: 1 }),
+                      },
+                    }),
+                  }),
+                  title: stringParam({ description: 'Human-readable report title.', minLength: 1 }),
+                  peerProfile: stringParam({ description: 'Public subtitle/profile.', minLength: 1 }),
+                  localLabel: stringParam({ description: 'Local/right speaker label.', minLength: 1 }),
+                  peerLabel: stringParam({ description: 'Peer/left speaker label.', minLength: 1 }),
+                },
+              }),
+              maxPageHeight: integerParam({
+                description: 'Maximum adaptive page height. Defaults to 8000; accepted values range from 900 through 32000 and overflow continues on additional pages.',
+                minimum: 900,
+                maximum: MAX_PAGE_HEIGHT,
+                examples: [8000, 12000],
+              }),
+            },
+          }),
+        },
+      }),
+      async execute(_toolCallId, params = {}, toolContext = {}) {
+        const { cfg, workspaceRoot, agentId } = await resolveTranscriptWorkspace(api, params, toolContext);
+        if (!workspaceRoot) {
+          throw new Error('unable to resolve the active OpenClaw workspace for Management reporting');
+        }
+        const result = await deliverClaworldManagementReport({
+          api,
+          cfg,
+          workspaceRoot,
+          localAgentId: agentId,
+          request: params,
+        });
+        return buildToolResult({ ...result, tool: reportToHumanTool });
       },
     },
   ];
@@ -1250,7 +1870,7 @@ function buildRegisteredTools(api, plugin) {
   const broadcastAudienceValues = ['members', 'admins', 'admins_and_owner'];
   const broadcastReplyPolicyValues = ['zero', 'at_most_one'];
   const broadcastConfigProperty = objectParam({
-    description: 'Optional world broadcast config for owner update_context. This controls whether announcement broadcast is enabled and who receives it.',
+    description: 'Owner broadcast capability config for update_world only. Controls whether announcement broadcast is enabled and who receives it. Not for set_world_broadcast_preference (which is a viewer subscription preference).',
     properties: {
       enabled: booleanParam({
         description: 'Whether owner announcement broadcast is enabled for this world.',
@@ -1281,7 +1901,7 @@ function buildRegisteredTools(api, plugin) {
     {
       name: 'claworld_get_world_detail',
       label: 'Claworld Get World Detail',
-      description: 'Canonical world-inspection tool. Fetch one world detail before deciding whether to join it.',
+      description: `Canonical world-inspection tool. Fetch one world detail before deciding whether to join it. ${CLAWORLD_WORLD_TOOL_GUIDANCE}`,
       metadata: buildToolMetadata({
         category: 'world_discovery',
         usageNotes: [
@@ -1326,7 +1946,7 @@ function buildRegisteredTools(api, plugin) {
     {
       name: 'claworld_join_world',
       label: 'Claworld Join World',
-      description: 'Canonical world-entry tool. Submit one world-scoped participantContextText for the selected world and receive the current join result, membership state, and terminal member-discovery follow-up actions.',
+      description: `Canonical world-entry tool. Submit one world-scoped participantContextText for the selected world and receive the current join result, membership state, and terminal member-discovery follow-up actions. ${CLAWORLD_WORLD_TOOL_GUIDANCE}`,
       metadata: buildToolMetadata({
         category: 'world_join',
         usageNotes: [
@@ -1384,7 +2004,7 @@ function buildRegisteredTools(api, plugin) {
     {
       name: 'claworld_create_world',
       label: 'Claworld Create World',
-      description: 'Creator/admin entrypoint for publishing one new owner-managed world. It also accepts the owner participantContextText and returns the owner self-join result block on success.',
+      description: `Creator/admin entrypoint for publishing one new managed world. It also accepts the creator participantContextText and returns the self-join result block on success. ${CLAWORLD_WORLD_TOOL_GUIDANCE}`,
       metadata: buildToolMetadata({
         category: 'world_creation',
         usageNotes: [
@@ -1472,7 +2092,7 @@ function buildRegisteredTools(api, plugin) {
     {
       name: 'claworld_manage_world',
       label: 'Claworld Manage World',
-      description: 'Unified world management tool. Use owner actions for world governance, or member actions to inspect joined worlds, update your world profile, and leave a world.',
+      description: `Unified world management tool. Use governance actions for world management, or member actions to inspect joined worlds, update your world profile, and leave a world. ${CLAWORLD_WORLD_TOOL_GUIDANCE}`,
       metadata: buildToolMetadata({
         category: 'world_management',
         usageNotes: [
@@ -1777,7 +2397,7 @@ function buildRegisteredTools(api, plugin) {
           'localSessionKey is a local runtime reference only, not a transport address for sending a user message directly to the peer.',
           'Optional filters can narrow by direction, mode, status, worldId, chatRequestId, conversationKey, localSessionKey, or counterpartyAgentId.',
           'For user requests to contact, PK, continue, or re-engage a Claworld peer, use claworld_manage_conversations(action=request) with the intended direct or world scope.',
-          'Peer-facing opener/reply/final content is delivered by the Conversation Session and backend conversation runtime. Main Session must not use sessions_send to write peer-facing content into a local conversation session.',
+          'Peer-facing opener/reply/final content is delivered by the Conversation Session and backend conversation runtime. Start and inspect that flow through the Claworld conversation tools.',
           'Prefer Claworld conversation state, reports, and concise summaries before inspecting raw local transcript details.',
           'Global counts stay visible even when filters are applied; filtered counts describe the current narrowed result set.',
           'After action=accept or action=reject, call action=list again to refresh the inbox view.',
@@ -1888,7 +2508,7 @@ function buildRegisteredTools(api, plugin) {
     {
       name: 'claworld_account',
       label: 'Claworld Account',
-      description: 'Canonical account surface. View current relay binding plus public identity readiness, or update the public display identity for the current Claworld account.',
+      description: 'Canonical account surface. View current relay binding plus public identity readiness, or update the public display identity/profile for the current Claworld account.',
       metadata: buildToolMetadata({
         category: 'account',
         usageNotes: [
@@ -2032,7 +2652,7 @@ function buildRegisteredTools(api, plugin) {
           shareCardVariant: params.shareCardVariant ?? null,
           expiresInSeconds: params.expiresInSeconds ?? null,
         });
-        const pairedAgentId = identityPayload?.agentId || runtimeConfig.relay?.agentId || null;
+        const pairedAgentId = resolveToolAgentId(identityPayload, runtimeConfig.relay?.agentId || null);
         const pairedRuntimeConfig = pairedAgentId
           ? {
             ...runtimeConfig,
@@ -2045,11 +2665,11 @@ function buildRegisteredTools(api, plugin) {
         const relayAgentFallback = pairedAgentId
           ? {
             agentId: pairedAgentId,
-            displayName: normalizeText(
-              identityPayload?.publicIdentity?.displayName,
+            displayName: resolveToolDisplayName(
+              identityPayload,
               normalizeText(
-                identityPayload?.recommendedDisplayName,
-                normalizeText(runtimeConfig?.name, normalizeText(runtimeConfig?.registration?.displayName, null)),
+                runtimeConfig?.name,
+                normalizeText(runtimeConfig?.registration?.displayName, null),
               ),
             ),
             visibilityMode: null,
@@ -2266,11 +2886,69 @@ export function registerClaworldPluginFull(api, plugin) {
     const internalTools = new Map(
       buildRegisteredTools(api, plugin).map((tool) => [tool.name, tool]),
     );
-    for (const tool of createTerminalToolAdapters(api, plugin, internalTools).map((terminalTool) => ({
-      ...terminalTool,
-      execute: withToolErrorBoundary(terminalTool.name, terminalTool.execute),
-    }))) {
-      api.registerTool(tool);
+    for (const terminalTool of createTerminalToolAdapters(api, plugin, internalTools)) {
+      if (terminalTool.name === 'claworld_manage_account') {
+        api.registerTool(
+          (toolContext) => ({
+            ...terminalTool,
+            execute: withToolErrorBoundary(terminalTool.name, async (...args) => {
+              const result = await terminalTool.execute(...args);
+              return await deliverShareCardToCurrentChannel(api, result, toolContext);
+            }),
+          }),
+          { name: terminalTool.name },
+        );
+        continue;
+      }
+      if (terminalTool.name === 'claworld_manage_conversations') {
+        api.registerTool(
+          (toolContext) => ({
+            ...terminalTool,
+            execute: withToolErrorBoundary(
+              terminalTool.name,
+              async (...args) => await terminalTool.execute(...args, toolContext),
+            ),
+          }),
+          { name: terminalTool.name },
+        );
+        continue;
+      }
+      if (terminalTool.name === 'claworld_report_to_human') {
+        api.registerTool(
+          (toolContext) => {
+            if (!isManagementToolContext(toolContext)) return null;
+            return {
+              ...terminalTool,
+              execute: withToolErrorBoundary(
+                terminalTool.name,
+                async (...args) => await terminalTool.execute(...args, toolContext),
+              ),
+            };
+          },
+          { name: terminalTool.name },
+        );
+        continue;
+      }
+      if (terminalTool.name === 'claworld_render_transcript_report') {
+        api.registerTool(
+          (toolContext) => {
+            if (isManagementToolContext(toolContext)) return null;
+            return {
+              ...terminalTool,
+              execute: withToolErrorBoundary(
+                terminalTool.name,
+                async (...args) => await terminalTool.execute(...args, toolContext),
+              ),
+            };
+          },
+          { name: terminalTool.name },
+        );
+        continue;
+      }
+      api.registerTool({
+        ...terminalTool,
+        execute: withToolErrorBoundary(terminalTool.name, terminalTool.execute),
+      });
     }
   }
   return plugin;

@@ -13,6 +13,7 @@ function jsonResponse(body, { status = 200 } = {}) {
 
 async function main() {
   const tools = [];
+  const sentMedia = [];
   const cfg = {
     channels: {
       claworld: {
@@ -28,17 +29,100 @@ async function main() {
               credentialToken: 'relay_at_moza',
             },
           },
+          noauth: {
+            enabled: true,
+            serverUrl: 'http://127.0.0.1:8787',
+            apiKey: 'demo-plugin-key',
+            accountId: 'noauth',
+          },
         },
       },
     },
   };
   let accountRelayMode = 'live';
+  let mediaReceiptKind = 'media';
+  let feedbackRequest = null;
+  const publicIdentity = {
+    status: 'ready',
+    displayName: 'Moza',
+    code: 'MOZA',
+    displayIdentity: 'Moza#MOZA',
+    confirmedAt: '2026-07-06T00:00:00.000Z',
+    updatedAt: '2026-07-06T00:00:00.000Z',
+  };
+  const accountProfile = {
+    status: 'ready',
+    ready: true,
+    profile: 'Builds careful product tests.',
+  };
+  const shareCard = {
+    status: 'ready',
+    imageUrl: 'https://staging.claworld.love/v1/share-card/claworld-share-card-moza.jpg?token=card_token',
+    downloadUrl: 'https://staging.claworld.love/v1/share-card/claworld-share-card-moza.jpg?token=card_token',
+    templateId: 'agent-card.slot-04',
+    variant: 'zh',
+    imageFormat: 'jpeg',
+    mimeType: 'image/jpeg',
+    expiresAt: '2026-07-06T02:00:00.000Z',
+    description: '该链接为您的 public identity 名片图片，请直接打开或下载后发送给用户。',
+  };
+  const buildProfileEnvelope = ({ includeShareCard = false, displayName = 'Moza' } = {}) => ({
+    status: 'ready',
+    ready: true,
+    agentId: 'agt_moza',
+    publicIdentity: {
+      ...publicIdentity,
+      displayName,
+      displayIdentity: `${displayName}#MOZA`,
+    },
+    accountProfile,
+    profile: accountProfile.profile,
+    clientVersionStatus: {
+      client: 'openclaw-plugin',
+      status: 'latest',
+      compatible: true,
+      reportedVersion: '2026.7.7-testing.1',
+      minSupportedVersion: '2026.7.7-testing.1',
+      latestVersion: '2026.7.7-testing.1',
+      message: 'OpenClaw Claworld plugin version is up to date.',
+    },
+    ...(includeShareCard ? { shareCard } : {}),
+  });
 
   registerClaworldPlugin(
     {
       registerChannel() {},
       registerTool(tool) {
-        tools.push(tool);
+        tools.push(typeof tool === 'function'
+          ? tool({
+              messageChannel: 'feishu',
+              deliveryContext: {
+                channel: 'feishu',
+                to: 'chat:test',
+                accountId: 'default',
+              },
+              getRuntimeConfig: () => cfg,
+            })
+          : tool);
+      },
+      runtime: {
+        channel: {
+          outbound: {
+            async loadAdapter(channel) {
+              assert.equal(channel, 'feishu');
+              return {
+                async sendMedia(params) {
+                  sentMedia.push(params);
+                  return {
+                    channel: 'feishu',
+                    messageId: `image-${sentMedia.length}`,
+                    receipt: { kind: mediaReceiptKind },
+                  };
+                },
+              };
+            },
+          },
+        },
       },
       config: {
         async loadConfig() {
@@ -50,43 +134,51 @@ async function main() {
       fetchImpl: async (url, init = {}) => {
         const href = String(url);
         const method = String(init?.method || 'GET').toUpperCase();
+        const body = init?.body ? JSON.parse(String(init.body)) : {};
         if (href.endsWith('/v1/profile') && method === 'POST') {
           return jsonResponse({
-            status: 'ready',
-            ready: true,
-            agentId: 'agt_moza',
+            ...buildProfileEnvelope({ includeShareCard: body.generateShareCard === true }),
             publicIdentity: {
-              status: 'ready',
-              displayName: 'Moza',
-              code: 'MOZA',
-              displayIdentity: 'Moza#MOZA',
-              confirmedAt: '2026-07-06T00:00:00.000Z',
-              updatedAt: '2026-07-06T00:00:00.000Z',
+              ...publicIdentity,
+              ...(body.displayName ? {
+                displayName: body.displayName,
+                displayIdentity: `${body.displayName}#MOZA`,
+              } : {}),
             },
-            accountProfile: {
-              status: 'ready',
-              ready: true,
-              profile: 'Builds careful product tests.',
-            },
-            profile: 'Builds careful product tests.',
           });
         }
         if (href.endsWith('/v1/account') && method === 'POST') {
           const common = {
             status: 'ready',
             readiness: 'ready',
-            account: {
-              agentId: 'agt_moza',
-              emailVerified: true,
-              email: 'yuanhangxurobin@gmail.com',
-              profileReady: true,
-            },
             diagnostics: {
               emailVerified: true,
               publicIdentityReady: true,
               accountProfileReady: true,
               ...(accountRelayMode === 'live' ? { relayOnline: true } : {}),
             },
+            account: {
+              agentId: 'agt_moza',
+              displayName: 'Moza',
+            publicIdentity: {
+              ...publicIdentity,
+              ...(body.displayName ? {
+                displayName: body.displayName,
+                displayIdentity: `${body.displayName}#MOZA`,
+              } : {}),
+            },
+              humanProfile: 'Builds careful product tests.',
+              agentProfile: accountProfile.profile,
+              legacyProfile: accountProfile.profile,
+              emailVerified: true,
+              email: 'yuanhangxurobin@gmail.com',
+              verifiedAt: '2026-07-06T00:00:00.000Z',
+              profileReady: true,
+            },
+            profile: buildProfileEnvelope({
+              includeShareCard: body.generateShareCard === true,
+              displayName: body.displayName || 'Moza',
+            }),
           };
           if (accountRelayMode === 'live') {
             return jsonResponse({
@@ -101,6 +193,26 @@ async function main() {
             });
           }
           return jsonResponse(common);
+        }
+        if (href.endsWith('/v1/feedback') && method === 'POST') {
+          feedbackRequest = { href, init, body };
+          return jsonResponse({
+            status: 'recorded',
+            feedback: {
+              feedbackId: 'fb_tool_123',
+              category: body.category,
+              impact: body.impact,
+              title: body.title,
+              accountId: body.accountId,
+              reporter: {
+                agentId: body.agentId,
+                publicIdentity,
+              },
+              context: body.context,
+              runtimeContext: body.runtimeContext,
+              createdAt: '2026-07-08T00:00:00.000Z',
+            },
+          });
         }
         if (href.endsWith('/v1/agents') && method === 'GET') {
           return jsonResponse({
@@ -134,6 +246,110 @@ async function main() {
   assert.equal(livePayload.diagnostics.relayOnline, true);
   assert.equal(livePayload.diagnostics.relayPresenceResolved, true);
   assert.equal(livePayload.diagnostics.relayIdentityResolved, true);
+  assert.equal(livePayload.publicIdentity.displayIdentity, 'Moza#MOZA');
+  assert.equal(livePayload.profile, 'Builds careful product tests.');
+  assert.equal(livePayload.accountProfile.profile, 'Builds careful product tests.');
+  assert.equal(livePayload.pluginVersionStatus.status, 'latest');
+  assert.equal(JSON.stringify(livePayload).includes('[object Object]'), false);
+  assert.equal(liveResult.details, undefined);
+
+  const shareCardResult = await manageAccount.execute('tool_account_share_card', {
+    accountId: 'moza',
+    action: 'view_account',
+    generateShareCard: true,
+    shareCardVariant: 'zh',
+  });
+  const shareCardPayload = JSON.parse(shareCardResult.content[0].text);
+  assert.equal(shareCardPayload.shareCard.status, 'ready');
+  assert.equal(shareCardPayload.shareCard.variant, 'zh');
+  assert.equal(shareCardPayload.shareCard.imageUrl, shareCard.imageUrl);
+  assert.equal(shareCardPayload.shareCard.downloadUrl, shareCard.downloadUrl);
+  assert.match(shareCardPayload.shareCard.description, /当前聊天渠道发送/);
+  assert.match(shareCardPayload.shareCard.description, /不要下载/);
+  assert.equal(shareCardPayload.publicIdentity.displayIdentity, 'Moza#MOZA');
+  assert.equal(shareCardPayload.profile, 'Builds careful product tests.');
+  assert.equal(JSON.stringify(shareCardPayload).includes('[object Object]'), false);
+  assert.equal(shareCardResult.details, undefined);
+  assert.equal(sentMedia.length, 1);
+  assert.equal(sentMedia[0].to, 'chat:test');
+  assert.equal(sentMedia[0].text, '');
+  assert.equal(sentMedia[0].mediaUrl, shareCard.imageUrl);
+  assert.equal(sentMedia[0].accountId, 'default');
+
+  const updateIdentityResult = await manageAccount.execute('tool_account_update_display_name', {
+    accountId: 'moza',
+    action: 'update_display_name',
+    displayName: 'Moza Prime',
+    shareCardVariant: 'zh',
+  });
+  const updateIdentityPayload = JSON.parse(updateIdentityResult.content[0].text);
+  assert.equal(updateIdentityPayload.action, 'update_display_name');
+  assert.equal(updateIdentityPayload.publicIdentity.displayIdentity, 'Moza Prime#MOZA');
+  assert.equal(updateIdentityPayload.shareCard.status, 'ready');
+  assert.equal(updateIdentityPayload.shareCard.imageUrl, shareCard.imageUrl);
+  assert.match(updateIdentityPayload.shareCard.description, /当前聊天渠道发送/);
+  assert.equal(JSON.stringify(updateIdentityPayload).includes('[object Object]'), false);
+  assert.equal(updateIdentityResult.details, undefined);
+  assert.equal(sentMedia.length, 2);
+  assert.equal(sentMedia[1].mediaUrl, shareCard.imageUrl);
+
+  mediaReceiptKind = 'text';
+  const fallbackResult = await manageAccount.execute('tool_account_share_card_text_fallback', {
+    accountId: 'moza',
+    action: 'view_account',
+    generateShareCard: true,
+    shareCardVariant: 'zh',
+  });
+  const fallbackPayload = JSON.parse(fallbackResult.content[0].text);
+  assert.equal(fallbackPayload.status, 'error');
+  assert.equal(fallbackPayload.tool, 'claworld_manage_account');
+  assert.equal(fallbackPayload.code, 'claworld_tool_execution_failed');
+  assert.equal(fallbackPayload.message, 'tool execution failed');
+  mediaReceiptKind = 'media';
+
+  const feedbackResult = await manageAccount.execute('tool_feedback_submit', {
+    accountId: 'moza',
+    action: 'submit_feedback',
+    category: 'bug_report',
+    title: 'Feedback submission should use account tool auth',
+    goal: 'report a Claworld runtime issue',
+    actualBehavior: 'agent tried to run curl',
+    expectedBehavior: 'account tool submits the report',
+    impact: 'medium',
+    details: 'Manual HTTP should not be needed.',
+    reproductionSteps: ['Ask to report feedback'],
+    context: { worldId: 'w1', tags: ['feedback'] },
+  });
+  const feedbackPayload = JSON.parse(feedbackResult.content[0].text);
+  assert.equal(feedbackRequest.href, 'http://127.0.0.1:8787/v1/feedback');
+  assert.equal(feedbackRequest.body.agentId, 'agt_moza');
+  assert.equal(feedbackRequest.body.accountId, 'moza');
+  assert.equal(feedbackRequest.body.source, 'openclaw_account_tool');
+  assert.equal(feedbackRequest.body.runtimeContext.toolName, 'claworld_manage_account');
+  assert.equal(feedbackRequest.body.runtimeContext.accountToolAction, 'submit_feedback');
+  assert.equal(feedbackRequest.init.headers.authorization, 'Bearer relay_at_moza');
+  assert.equal(feedbackRequest.init.headers['x-claworld-app-token'], 'relay_at_moza');
+  assert.equal(feedbackPayload.tool, 'claworld_manage_account');
+  assert.equal(feedbackPayload.action, 'submit_feedback');
+  assert.equal(feedbackPayload.status, 'recorded');
+  assert.equal(feedbackPayload.feedbackId, 'fb_tool_123');
+  assert.equal(feedbackPayload.reporterAgentId, 'agt_moza');
+  assert.equal(feedbackPayload.runtime.toolName, 'claworld_manage_account');
+  assert.equal(feedbackPayload.runtime.accountToolAction, 'submit_feedback');
+
+  const missingFeedbackAuthResult = await manageAccount.execute('tool_feedback_missing_auth', {
+    accountId: 'noauth',
+    action: 'submit_feedback',
+    category: 'bug_report',
+    title: 'Feedback should be authenticated',
+    goal: 'report a Claworld runtime issue',
+    actualBehavior: 'missing token',
+    expectedBehavior: 'clear setup error',
+  });
+  const missingFeedbackAuthPayload = JSON.parse(missingFeedbackAuthResult.content[0].text);
+  assert.equal(missingFeedbackAuthPayload.status, 'error');
+  assert.equal(missingFeedbackAuthPayload.code, 'public_identity_incomplete');
+  assert.equal(missingFeedbackAuthPayload.nextTool, 'claworld_manage_account');
 
   accountRelayMode = 'omitted';
   const omittedResult = await manageAccount.execute('tool_account_omitted', {

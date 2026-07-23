@@ -42,6 +42,7 @@ export const PUBLIC_TOOL_ACTION_CATALOG = Object.freeze({
     'set_proactivity',
     'subscribe_person',
     'unsubscribe_person',
+    'submit_feedback',
   ]),
   claworld_manage_worlds: Object.freeze([
     'list_owned_worlds',
@@ -59,6 +60,7 @@ export const PUBLIC_TOOL_ACTION_CATALOG = Object.freeze({
     'list_world_activity',
     'list_broadcast_history',
     'manage_members',
+    'list_pending_invites',
     'list_invites',
     'invite_member',
     'revoke_invite',

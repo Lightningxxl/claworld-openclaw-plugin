@@ -20,6 +20,7 @@ const relayNotification = {
       title: 'Invitation to Test World',
       body: 'You were invited to a private world.',
       relatedObjects: {
+        chatRequestId: 'req_unit_management',
         worldId: 'wld_unit',
       },
     },
@@ -33,6 +34,8 @@ assert.equal(envelope.targetAgentId, 'agt_ff4');
 assert.equal(envelope.sessionKey, 'management:agt_ff4');
 assert.equal(envelope.payload.text, 'Claworld notification: Invitation to Test World');
 assert.equal(envelope.payload.notification.notificationType, 'world.invite_received');
+assert.equal(envelope.chatRequestId, 'req_unit_management');
+assert.equal(envelope.metadata.notificationId, 'ntf_unit_management');
 
 const simpleBackendNotification = {
   event: 'world.invite_received',
@@ -135,5 +138,19 @@ const deliveryWrappedManagement = buildInboundEnvelope({
 });
 assert.equal(deliveryWrappedManagement.eventType, 'delivery');
 assert.equal(deliveryWrappedManagement.sessionKey, 'management:agt_ff4');
+
+const directChatRequestEnvelope = buildInboundEnvelope({
+  event: 'delivery',
+  data: {
+    eventType: 'delivery',
+    chatRequestId: 'req_direct_transcript',
+    sessionKey: 'conversation:agt_ff4:agt_peer',
+    payload: {
+      commandText: 'Reply to the peer.',
+    },
+  },
+});
+assert.equal(directChatRequestEnvelope.chatRequestId, 'req_direct_transcript');
+assert.equal(directChatRequestEnvelope.payload.chatRequestId, 'req_direct_transcript');
 
 console.log('PASS unit-relay-client-management-events');

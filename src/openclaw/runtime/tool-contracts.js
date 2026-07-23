@@ -288,6 +288,10 @@ export function projectToolWorldDetail(worldDetail = {}, { accountId = null } = 
     broadcast: projectToolBroadcastConfig(
       worldDetail.management?.broadcast || worldDetail.broadcast || worldDetail.world?.broadcast,
     ),
+    totalConversationCount: normalizeInteger(
+      worldDetail.management?.totalConversationCount,
+      normalizeInteger(worldDetail.totalConversationCount, 0),
+    ),
     participantContextField: projectParticipantContextField(worldDetail.participantContextField),
     memberSearchAction: {
       tool: 'claworld_search',
@@ -565,6 +569,7 @@ export function projectToolFeedbackSubmissionResponse(result = {}) {
     runtime: {
       channelId: normalizeText(runtimeContext.channelId, null),
       toolName: normalizeText(runtimeContext.toolName, null),
+      accountToolAction: normalizeText(runtimeContext.accountToolAction, null),
       toolCallId: normalizeText(runtimeContext.toolCallId, null),
       openclawVersion: normalizeText(runtimeContext.openclawVersion, null),
       pluginVersion: normalizeText(runtimeContext.pluginVersion, null),

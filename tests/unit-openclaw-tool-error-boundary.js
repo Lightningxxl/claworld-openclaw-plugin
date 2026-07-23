@@ -1,7 +1,9 @@
 import assert from 'assert';
 import { registerClaworldPlugin } from '../src/openclaw/index.js';
+import { CHAT_REQUEST_CREATE_TIMEOUT_MS } from '../src/openclaw/plugin/claworld-channel-plugin.js';
 
 async function main() {
+  assert.equal(CHAT_REQUEST_CREATE_TIMEOUT_MS, 60_000);
   const tools = [];
   const cfg = {
     channels: {
@@ -23,12 +25,15 @@ async function main() {
     },
   };
   const chatRequestBodies = [];
+  const pendingInviteUrls = [];
+  let delayNextChatResponse = false;
+  let returnActiveConversationConflict = false;
 
   registerClaworldPlugin(
     {
       registerChannel() {},
       registerTool(tool) {
-        tools.push(tool);
+        tools.push(typeof tool === 'function' ? tool({}) : tool);
       },
       config: {
         async loadConfig() {
@@ -38,6 +43,74 @@ async function main() {
     },
     {
       fetchImpl: async (url, init = {}) => {
+        if (
+          String(url).includes('/v1/world-invitations')
+          && String(init?.method || 'GET').toUpperCase() === 'GET'
+        ) {
+          pendingInviteUrls.push(String(url));
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                agentId: 'agt_moza',
+                status: 'pending',
+                items: [
+                  {
+                    invitationId: 'mem_invited_1',
+                    membershipId: 'mem_invited_1',
+                    worldId: 'world-invite-1',
+                    displayName: 'Quiet Research Circle',
+                    worldContextText: 'A private world for focused research notes.',
+                    participantContextField: {
+                      fieldId: 'participantContextText',
+                      label: 'Entry Profile',
+                    },
+                    joinPlan: {
+                      worldId: 'world-invite-1',
+                      nextAction: 'join_world',
+                      participantContextField: {
+                        fieldId: 'participantContextText',
+                        label: 'Entry Profile',
+                      },
+                    },
+                    membershipStatus: 'invited',
+                    status: 'pending',
+                    invitedByAgentId: 'agt_owner',
+                    invitedByDisplayName: 'Mira',
+                    invitedByPublicIdentity: 'Mira#AB12CD',
+                    inviter: {
+                      agentId: 'agt_owner',
+                      displayName: 'Mira',
+                      publicIdentity: 'Mira#AB12CD',
+                      profile: 'Research host profile.',
+                    },
+                    invitedAt: '2026-07-01T00:00:00.000Z',
+                    inviteMessage: 'Come compare notes.',
+                    expiresAt: null,
+                    expirationPolicy: 'none',
+                    lifecycle: {
+                      status: 'pending',
+                      expiresAt: null,
+                      expirationPolicy: 'none',
+                    },
+                    nextAction: 'review_invitation_or_join_world',
+                    nextActions: [
+                      {
+                        action: 'join_world',
+                        tool: 'claworld_manage_worlds',
+                        worldId: 'world-invite-1',
+                        requiredFields: ['participantContextText'],
+                      },
+                    ],
+                  },
+                ],
+                totalItems: 1,
+                nextAction: 'review_pending_invites',
+              };
+            },
+          };
+        }
         if (
           String(url).includes('/v1/worlds/dating-demo-world/join')
           && String(init?.method || 'GET').toUpperCase() === 'POST'
@@ -71,6 +144,30 @@ async function main() {
         ) {
           const body = JSON.parse(init?.body || '{}');
           chatRequestBodies.push(body);
+          if (delayNextChatResponse) {
+            delayNextChatResponse = false;
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          }
+          if (returnActiveConversationConflict) {
+            returnActiveConversationConflict = false;
+            return {
+              ok: false,
+              status: 409,
+              async json() {
+                return {
+                  error: 'conversation_already_active',
+                  reason: 'active_episode_exists',
+                  message: 'You already have an active conversation with this person in this scope. Continue it or wait for it to end before starting another.',
+                  retryable: false,
+                  conversationStatus: 'active',
+                  conversationKey: 'pair:agt_moza::agt_target:direct',
+                  chatRequestId: 'req_active',
+                  sessionKey: 'conversation:pair:agt_moza::agt_target:direct',
+                  nextAction: 'continue_existing_conversation',
+                };
+              },
+            };
+          }
           if (!String(body.openingMessage || '').trim()) {
             return {
               ok: false,
@@ -180,16 +277,55 @@ async function main() {
   assert.equal(missingOpeningPayload.fieldErrors?.[0]?.fieldId, 'openingMessage');
 
   const messageAliasIndex = chatRequestBodies.length;
-  const messageAliasResult = await requestChat.execute('tool_send_message_alias', {
-    accountId: 'moza',
-    action: 'request',
-    displayName: 'Runtime Candidate',
-    agentCode: 'ZX82QP',
-    message: 'hello from message alias',
-  });
+  const scheduledTimeouts = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (callback, delay, ...args) => {
+    scheduledTimeouts.push(delay);
+    const scaledDelay = delay === CHAT_REQUEST_CREATE_TIMEOUT_MS ? 60 : delay;
+    return originalSetTimeout(callback, scaledDelay, ...args);
+  };
+  delayNextChatResponse = true;
+  let messageAliasResult;
+  try {
+    messageAliasResult = await requestChat.execute('tool_send_message_alias', {
+      accountId: 'moza',
+      action: 'request',
+      displayName: 'Runtime Candidate',
+      agentCode: 'ZX82QP',
+      message: 'hello from message alias',
+    });
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
   const messageAliasPayload = JSON.parse(messageAliasResult.content[0].text);
   assert.equal(messageAliasPayload.status, 'pending');
   assert.equal(chatRequestBodies[messageAliasIndex]?.openingMessage, 'hello from message alias');
+  assert.ok(scheduledTimeouts.includes(CHAT_REQUEST_CREATE_TIMEOUT_MS));
+
+  const pendingInviteResult = await manageWorld.execute('tool_pending_invites_1', {
+    accountId: 'moza',
+    action: 'list_pending_invites',
+    limit: 5,
+  });
+  const pendingInvitePayload = JSON.parse(pendingInviteResult.content[0].text);
+  assert.equal(pendingInvitePayload.status, 'pending');
+  assert.equal(pendingInvitePayload.tool, 'claworld_manage_worlds');
+  assert.equal(pendingInvitePayload.action, 'list_pending_invites');
+  assert.equal(pendingInvitePayload.agentId, 'agt_moza');
+  assert.equal(pendingInvitePayload.totalItems, 1);
+  assert.equal(pendingInvitePayload.items[0]?.worldId, 'world-invite-1');
+  assert.equal(pendingInvitePayload.items[0]?.inviteMessage, 'Come compare notes.');
+  assert.equal(pendingInvitePayload.items[0]?.inviter?.profile, 'Research host profile.');
+  assert.equal(pendingInvitePayload.items[0]?.expirationPolicy, 'none');
+  assert.equal(pendingInvitePayload.items[0]?.nextActions[0]?.requiredFields[0], 'participantContextText');
+  assert.equal(pendingInvitePayload.items[0]?.nextActions.some((action) => action.action === 'get_world'), false);
+  assert.equal(pendingInviteUrls.length, 1);
+  const pendingInviteUrl = new URL(pendingInviteUrls[0]);
+  assert.equal(pendingInviteUrl.pathname, '/v1/world-invitations');
+  assert.equal(pendingInviteUrl.searchParams.get('agentId'), 'agt_moza');
+  assert.equal(pendingInviteUrl.searchParams.get('status'), 'pending');
+  assert.equal(pendingInviteUrl.searchParams.get('includeDisabled'), 'true');
+  assert.equal(pendingInviteUrl.searchParams.get('limit'), '5');
 
   const kickoffAliasIndex = chatRequestBodies.length;
   const kickoffAliasResult = await requestChat.execute('tool_send_kickoff_alias', {
@@ -205,6 +341,25 @@ async function main() {
   assert.equal(kickoffAliasPayload.status, 'pending');
   assert.equal(chatRequestBodies[kickoffAliasIndex]?.openingMessage, 'hello from kickoff alias');
   assert.equal(chatRequestBodies[kickoffAliasIndex]?.kickoffBrief?.message, 'hello from kickoff alias');
+
+  returnActiveConversationConflict = true;
+  const activeConflictResult = await requestChat.execute('tool_active_conversation_conflict', {
+    accountId: 'moza',
+    action: 'request',
+    displayName: 'Runtime Candidate',
+    agentCode: 'ZX82QP',
+    openingMessage: 'start another round',
+  });
+  const activeConflictPayload = JSON.parse(activeConflictResult.content[0].text);
+  assert.equal(activeConflictPayload.status, 'error');
+  assert.equal(activeConflictPayload.code, 'conversation_already_active');
+  assert.equal(activeConflictPayload.category, 'conflict');
+  assert.equal(activeConflictPayload.httpStatus, 409);
+  assert.equal(
+    activeConflictPayload.message,
+    'You already have an active conversation with this person in this scope. Continue it or wait for it to end before starting another.',
+  );
+  assert.equal(activeConflictPayload.nextAction, 'continue_existing_conversation');
 
   const joinResult = await manageWorld.execute('tool_join_1', {
     accountId: 'moza',

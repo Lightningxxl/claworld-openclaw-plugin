@@ -32,6 +32,56 @@ export function normalizeObject(value, fallback = null) {
   return value;
 }
 
+function normalizePlainText(value, fallback = null) {
+  if (value == null || typeof value === 'object' || typeof value === 'function') return fallback;
+  return normalizeText(value, fallback);
+}
+
+function resolveAccountManagementProfilePayload(payload = null) {
+  return normalizeObject(payload?.profile, null);
+}
+
+function resolveToolIdentityPayload(payload = null) {
+  return resolveAccountManagementProfilePayload(payload) || normalizeObject(payload, null);
+}
+
+function resolveToolPublicIdentityPayload(payload = null) {
+  const identityPayload = resolveToolIdentityPayload(payload);
+  return normalizeObject(identityPayload?.publicIdentity, null);
+}
+
+function resolveToolAccountProfilePayload(payload = null) {
+  const identityPayload = resolveToolIdentityPayload(payload);
+  return normalizeObject(identityPayload?.accountProfile, null);
+}
+
+function resolveToolShareCardPayload(payload = null) {
+  const identityPayload = resolveToolIdentityPayload(payload);
+  if (identityPayload && Object.prototype.hasOwnProperty.call(identityPayload, 'shareCard')) {
+    return identityPayload.shareCard;
+  }
+  return undefined;
+}
+
+function resolveToolPluginVersionPayload(payload = null) {
+  const identityPayload = resolveToolIdentityPayload(payload);
+  return identityPayload?.clientVersionStatus || null;
+}
+
+export function resolveToolAgentId(payload = null, fallback = null) {
+  const identityPayload = resolveToolIdentityPayload(payload);
+  return normalizePlainText(identityPayload?.agentId, fallback);
+}
+
+export function resolveToolDisplayName(payload = null, fallback = null) {
+  const identityPayload = resolveToolIdentityPayload(payload);
+  const publicIdentity = resolveToolPublicIdentityPayload(payload);
+  return normalizePlainText(
+    publicIdentity?.displayName,
+    normalizePlainText(identityPayload?.recommendedDisplayName, fallback),
+  );
+}
+
 function resolveRuntimeAppToken(runtimeConfig = {}) {
   return normalizeText(
     runtimeConfig?.appToken,
@@ -94,7 +144,7 @@ async function buildPendingPublicIdentityError({
       accountId: normalizeText(accountId, null),
       agentId: normalizeText(
         agentId,
-        normalizeText(identityPayload?.agentId, null),
+        resolveToolAgentId(identityPayload, null),
       ),
       httpStatus: 409,
       backendCode: 'public_identity_incomplete',
@@ -512,31 +562,36 @@ export function inferAccountAction(params = {}) {
 }
 
 function projectToolPublicIdentity(payload = null) {
-  if (!payload || typeof payload !== 'object') return null;
+  const identityPayload = resolveToolIdentityPayload(payload);
+  if (!identityPayload) return null;
+  const publicIdentity = resolveToolPublicIdentityPayload(payload);
   return {
-    status: payload.status || null,
-    ready: payload.ready ?? null,
-    publicIdentity: payload.publicIdentity && typeof payload.publicIdentity === 'object'
+    status: normalizePlainText(identityPayload.status, null),
+    ready: identityPayload.ready ?? null,
+    publicIdentity: publicIdentity
       ? {
-          status: payload.publicIdentity.status || null,
-          displayIdentity: payload.publicIdentity.displayIdentity || null,
-          displayName: payload.publicIdentity.displayName || null,
-          code: payload.publicIdentity.code || null,
-          confirmedAt: payload.publicIdentity.confirmedAt || null,
-          updatedAt: payload.publicIdentity.updatedAt || null,
+          status: normalizePlainText(publicIdentity.status, null),
+          displayIdentity: normalizePlainText(publicIdentity.displayIdentity, null),
+          displayName: normalizePlainText(publicIdentity.displayName, null),
+          code: normalizePlainText(publicIdentity.code, null),
+          confirmedAt: normalizePlainText(publicIdentity.confirmedAt, null),
+          updatedAt: normalizePlainText(publicIdentity.updatedAt, null),
         }
       : null,
-    recommendedDisplayName: payload.recommendedDisplayName || null,
-    requiredAction: payload.requiredAction || null,
-    nextAction: payload.nextAction || null,
-    nextTool: payload.nextTool || null,
-    missingFields: Array.isArray(payload.missingFields) ? payload.missingFields : [],
-    feedbackSummary: payload.feedbackSummary && typeof payload.feedbackSummary === 'object'
+    recommendedDisplayName: normalizePlainText(
+      identityPayload.recommendedDisplayName,
+      null,
+    ),
+    requiredAction: normalizePlainText(identityPayload.requiredAction, null),
+    nextAction: normalizePlainText(identityPayload.nextAction, null),
+    nextTool: normalizePlainText(identityPayload.nextTool, null),
+    missingFields: Array.isArray(identityPayload.missingFields) ? identityPayload.missingFields : [],
+    feedbackSummary: identityPayload.feedbackSummary && typeof identityPayload.feedbackSummary === 'object'
       ? {
-          totalLikesReceived: Number(payload.feedbackSummary.totalLikesReceived || 0),
-          totalDislikesReceived: Number(payload.feedbackSummary.totalDislikesReceived || 0),
-          totalLikesGiven: Number(payload.feedbackSummary.totalLikesGiven || 0),
-          totalDislikesGiven: Number(payload.feedbackSummary.totalDislikesGiven || 0),
+          totalLikesReceived: Number(identityPayload.feedbackSummary.totalLikesReceived || 0),
+          totalDislikesReceived: Number(identityPayload.feedbackSummary.totalDislikesReceived || 0),
+          totalLikesGiven: Number(identityPayload.feedbackSummary.totalLikesGiven || 0),
+          totalDislikesGiven: Number(identityPayload.feedbackSummary.totalDislikesGiven || 0),
         }
       : null,
   };
@@ -596,23 +651,28 @@ function projectToolAccountIdentityFields(identityPayload = null) {
 }
 
 function projectToolAccountProfile(identityPayload = null) {
-  return normalizeText(identityPayload?.profile, null);
+  const identityPayloadSource = resolveToolIdentityPayload(identityPayload);
+  const profilePayload = resolveToolAccountProfilePayload(identityPayload);
+  return normalizePlainText(
+    profilePayload?.profile,
+    normalizePlainText(identityPayloadSource?.profile, null),
+  );
 }
 
 function projectToolAccountProfileState(identityPayload = null) {
-  const profilePayload = normalizeObject(identityPayload?.accountProfile, null);
-  const profile = normalizeText(profilePayload?.profile, projectToolAccountProfile(identityPayload));
+  const profilePayload = resolveToolAccountProfilePayload(identityPayload);
+  const profile = normalizePlainText(profilePayload?.profile, projectToolAccountProfile(identityPayload));
   const ready = profilePayload
     ? profilePayload.ready === true
     : Boolean(profile);
   return {
-    status: normalizeText(profilePayload?.status, ready ? 'ready' : 'pending'),
+    status: normalizePlainText(profilePayload?.status, ready ? 'ready' : 'pending'),
     ready,
     profile,
-    reason: normalizeText(profilePayload?.reason, ready ? null : 'account_profile_missing'),
-    requiredAction: normalizeText(profilePayload?.requiredAction, ready ? null : 'update_agent_profile'),
-    nextAction: normalizeText(profilePayload?.nextAction, ready ? null : 'update_agent_profile'),
-    nextTool: normalizeText(profilePayload?.nextTool, ready ? null : 'claworld_manage_account'),
+    reason: normalizePlainText(profilePayload?.reason, ready ? null : 'account_profile_missing'),
+    requiredAction: normalizePlainText(profilePayload?.requiredAction, ready ? null : 'update_agent_profile'),
+    nextAction: normalizePlainText(profilePayload?.nextAction, ready ? null : 'update_agent_profile'),
+    nextTool: normalizePlainText(profilePayload?.nextTool, ready ? null : 'claworld_manage_account'),
     missingFields: Array.isArray(profilePayload?.missingFields)
       ? profilePayload.missingFields
       : (ready
@@ -630,9 +690,9 @@ function projectToolAccountProfileState(identityPayload = null) {
 function resolveToolPublicIdentityReady(identityPayload = null, publicIdentityState = {}) {
   const diagnostics = normalizeObject(identityPayload?.diagnostics, null);
   if (typeof diagnostics?.publicIdentityReady === 'boolean') return diagnostics.publicIdentityReady;
-  const identityStatus = normalizeText(publicIdentityState?.publicIdentity?.status, null);
+  const identityStatus = normalizePlainText(publicIdentityState?.publicIdentity?.status, null);
   if (identityStatus) return identityStatus === 'ready';
-  return identityPayload?.ready === true;
+  return resolveToolIdentityPayload(identityPayload)?.ready === true || identityPayload?.ready === true;
 }
 
 function projectToolPluginVersionStatus(payload = null) {
@@ -746,8 +806,9 @@ export function projectToolAccountViewResponse({
   const relayResolved = typeof accountRelay?.resolved === 'boolean'
     ? accountRelay.resolved
     : (typeof relayOnline === 'boolean');
-  const resolvedShareCard = identityPayload && Object.prototype.hasOwnProperty.call(identityPayload, 'shareCard')
-    ? projectToolShareCard(identityPayload.shareCard)
+  const shareCardPayload = resolveToolShareCardPayload(identityPayload);
+  const resolvedShareCard = shareCardPayload !== undefined
+    ? projectToolShareCard(shareCardPayload)
     : undefined;
   return {
     action: 'view',
@@ -799,7 +860,7 @@ export function projectToolAccountViewResponse({
     nextAction: blockedAction.nextAction,
     nextTool: blockedAction.nextTool,
     missingFields: blockedAction.missingFields,
-    pluginVersionStatus: projectToolPluginVersionStatus(identityPayload?.pluginVersionStatus),
+    pluginVersionStatus: projectToolPluginVersionStatus(resolveToolPluginVersionPayload(identityPayload)),
     ...(resolvedShareCard !== undefined ? { shareCard: resolvedShareCard } : {}),
   };
 }
@@ -813,10 +874,11 @@ export function projectToolAccountMutationResponse({
 } = {}) {
   const publicIdentityState = projectToolAccountIdentityFields(identityPayload);
   const accountProfile = projectToolAccountProfileState(identityPayload);
+  const identityShareCardPayload = resolveToolShareCardPayload(identityPayload);
   const resolvedShareCard = shareCard !== undefined
     ? shareCard
-    : (identityPayload && Object.prototype.hasOwnProperty.call(identityPayload, 'shareCard')
-        ? projectToolShareCard(identityPayload.shareCard)
+    : (identityShareCardPayload !== undefined
+        ? projectToolShareCard(identityShareCardPayload)
         : undefined);
   const publicIdentityReady = resolveToolPublicIdentityReady(identityPayload, publicIdentityState);
   const accountProfileReady = accountProfile.ready === true;
@@ -885,7 +947,7 @@ export function projectToolAccountMutationResponse({
     nextTool: blockedAction.nextTool,
     missingFields: blockedAction.missingFields,
     reason: blockedAction.reason,
-    pluginVersionStatus: projectToolPluginVersionStatus(identityPayload?.pluginVersionStatus),
+    pluginVersionStatus: projectToolPluginVersionStatus(resolveToolPluginVersionPayload(identityPayload)),
     ...(resolvedShareCard !== undefined ? { shareCard: resolvedShareCard } : {}),
     ...(runtimeIdentity ? { runtimeIdentity } : {}),
     ...(action === 'update_identity'

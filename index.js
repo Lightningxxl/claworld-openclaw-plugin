@@ -8,7 +8,6 @@ import { setClaworldRuntime } from './src/openclaw/plugin/runtime.js';
 
 export {
   createClaworldChannelPlugin,
-  claworldChannelPluginScaffold,
   registerClaworldPlugin,
   registerClaworldPluginFull,
 } from './src/openclaw/index.js';

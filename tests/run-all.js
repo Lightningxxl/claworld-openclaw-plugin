@@ -10,9 +10,13 @@ const TEST_GROUPS = {
     'tests/unit-claworld-managed-setup.js',
     'tests/unit-openclaw-plugin-entrypoints.js',
     'tests/unit-openclaw-account-view-relay.js',
+    'tests/unit-openclaw-transcript-report.js',
     'tests/unit-openclaw-tool-error-boundary.js',
     'tests/unit-relay-client-error-boundary.js',
     'tests/unit-relay-client-management-events.js',
+    'tests/unit-inbound-notification-idempotency.js',
+    'tests/unit-management-notification-dispatch-idempotency.js',
+    'tests/unit-publish-package-git-state.js',
   ],
 };
 
